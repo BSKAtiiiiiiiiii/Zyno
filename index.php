@@ -17,15 +17,19 @@ define('PROFILES_DIR', DATA_DIR . 'profiles/');
 define('AVATARS_DIR', DATA_DIR . 'avatars/');
 define('COMMENTS_DIR', DATA_DIR . 'comments/');
 define('NOTIFICATIONS_DIR', DATA_DIR . 'notifications/');
+define('MUSIC_DIR', DATA_DIR . 'music/');
+define('STICKERS_DIR', DATA_DIR . 'stickers/');
+define('CODING_DIR', DATA_DIR . 'coding/');
+define('THEMES_DIR', DATA_DIR . 'themes/');
 define('MAX_FILE_SIZE', 5 * 1024 * 1024);
 define('MAX_AVATAR_SIZE', 1 * 1024 * 1024);
 define('MAX_POST_LENGTH', 25000);
-define('SITE_NAME', 'HI Cryndel');
-define('SITE_URL', 'https://hi.cryndel.ru');
+define('SITE_NAME', 'My Cryndel');
+define('SITE_URL', 'http://localhost:8080');
 define('MINECRAFT_IP', 'cryndel.ru:25919');
 
 // Создаем директории
-$dirs = [DATA_DIR, POSTS_DIR, PROFILES_DIR, AVATARS_DIR, COMMENTS_DIR, NOTIFICATIONS_DIR];
+$dirs = [DATA_DIR, POSTS_DIR, PROFILES_DIR, AVATARS_DIR, COMMENTS_DIR, NOTIFICATIONS_DIR, MUSIC_DIR, STICKERS_DIR, CODING_DIR, THEMES_DIR];
 foreach ($dirs as $dir) {
     if (!file_exists($dir)) {
         if (!mkdir($dir, 0755, true)) {
@@ -384,6 +388,7 @@ function savePost($post) {
     
     $htmlFile = $userDir . $post['slug'] . '.html';
     $roleStyle = getRoleStyle($post['role'] ?? '');
+    $sanitizedCss = str_replace(['</style>', '<script', 'javascript:', 'expression('], '', $post['custom_css'] ?? '');
     
     $htmlContent = <<<HTML
 <!DOCTYPE html>
@@ -391,7 +396,7 @@ function savePost($post) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{$post['title']} | HI Cryndel</title>
+    <title>{$post['title']} | My Cryndel</title>
     <meta name="description" content="{$post['meta_description']}">
     <meta name="keywords" content="{$post['meta_keywords']}">
     <meta property="og:title" content="{$post['title']}">
@@ -522,7 +527,7 @@ function savePost($post) {
             .post-header { padding: 20px; }
             .post-content { padding: 20px; }
         }
-        {$post['custom_css']}
+        {$sanitizedCss}
     </style>
 </head>
 <body>
@@ -720,6 +725,17 @@ function togglePostLike($slug, $userId) {
         }
     }
     
+    // Send notification on like
+    if ($hasLiked && $post['user_id'] !== $userId) {
+        $likerUser = getUserById($userId);
+        addNotification($post['user_id'], 'like', [
+            'from_user_id' => $userId,
+            'from_username' => $likerUser ? $likerUser['username'] : '',
+            'post_slug' => $slug,
+            'post_title' => $post['title'] ?? ''
+        ]);
+    }
+
     return ['likes' => count($likes), 'hasLiked' => $hasLiked];
 }
 
@@ -805,6 +821,19 @@ function addComment($slug, $userId, $content, $parentId = null) {
         return false;
     }
     
+    // Send comment notification to post author
+    if ($post['user_id'] !== $userId) {
+        $commenterUser = getUserById($userId);
+        addNotification($post['user_id'], 'comment', [
+            'from_user_id' => $userId,
+            'from_username' => $commenterUser ? $commenterUser['username'] : '',
+            'post_slug' => $slug,
+            'post_title' => $post['title'] ?? '',
+            'comment_id' => $commentId,
+            'content' => mb_substr($content, 0, 100)
+        ]);
+    }
+
     // Обработка упоминаний (@username)
     preg_match_all('/@([a-zA-Z0-9_]+)/', $content, $matches);
     if (!empty($matches[1])) {
@@ -813,9 +842,10 @@ function addComment($slug, $userId, $content, $parentId = null) {
             if ($mentionedUser && $mentionedUser['id'] != $userId) {
                 addNotification($mentionedUser['id'], 'mention', [
                     'from_user_id' => $userId,
+                    'from_username' => getUserById($userId) ? getUserById($userId)['username'] : '',
                     'post_slug' => $slug,
                     'comment_id' => $commentId,
-                    'content' => $content
+                    'content' => mb_substr($content, 0, 100)
                 ]);
             }
         }
@@ -1532,6 +1562,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             } else {
                 addError("Ошибка сохранения");
             }
+
+            // Also save status, cover, widgets into profile settings
+            if (isset($_POST['status']) || isset($_POST['cover_css'])) {
+                $settings = getUserProfileSettings($user['id']);
+                $settings['status'] = mb_substr(sanitizeInput($_POST['status'] ?? ''), 0, 100);
+                $settings['cover_css'] = sanitizeInput($_POST['cover_css'] ?? '');
+                $settings['widget_music'] = !empty($_POST['widget_music']);
+                $settings['widget_sticker'] = !empty($_POST['widget_sticker']);
+                $settings['widget_build'] = !empty($_POST['widget_build']);
+                saveUserProfileSettings($user['id'], $settings);
+            }
             
             redirect("/{$user['username']}");
             break;
@@ -1546,6 +1587,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $custom_css = $_POST['custom_css'] ?? '';
             $settings = getUserProfileSettings($user['id']);
             $settings['custom_css'] = $custom_css;
+            $settings['status'] = mb_substr($_POST['status'] ?? '', 0, 100);
+            $settings['cover_css'] = $_POST['cover_css'] ?? '';
+            $settings['widget_music'] = !empty($_POST['widget_music']);
+            $settings['widget_sticker'] = !empty($_POST['widget_sticker']);
+            $settings['widget_build'] = !empty($_POST['widget_build']);
             
             if (saveUserProfileSettings($user['id'], $settings)) {
                 addMessage("Настройки сохранены");
@@ -1553,7 +1599,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 addError("Ошибка");
             }
             
-            redirect("/{$user['username']}?tab=settings");
+            redirect("/{$user['username']}");
             break;
         
         case 'search':
@@ -1743,6 +1789,11 @@ if (empty($path) || $path === 'index.php') {
             break;
         case 'my_posts': $view = getCurrentUser() ? 'my_posts' : 'login'; break;
         case 'templates': $view = 'templates'; break;
+        case 'music': $view = 'music'; break;
+        case 'stickers': $view = 'stickers'; break;
+        case 'coding': $view = 'coding'; break;
+        case 'themes': $view = 'themes'; break;
+        case 'notifications': $view = getCurrentUser() ? 'notifications_page' : 'login'; break;
         default: $view = 'feed'; break;
     }
 } elseif (preg_match('/^post\/([a-z0-9-]+)$/', $path, $matches)) {
@@ -1782,19 +1833,24 @@ if (empty($path) || $path === 'index.php') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
     
     <title><?php
-    if ($view === 'post_view' && $post) echo htmlspecialchars($post['meta_title']) . ' | HI Cryndel';
-    elseif ($view === 'profile' && $profileUser) echo htmlspecialchars($profileUser['username']) . ' | Профиль | HI Cryndel';
-    elseif ($view === 'create_post') echo (isset($_GET['edit']) ? 'Редактировать пост' : 'Создать пост') . ' | HI Cryndel';
-    elseif ($view === 'my_posts') echo 'Мои посты | HI Cryndel';
-    elseif ($view === 'login') echo 'Вход | HI Cryndel';
-    elseif ($view === 'register') echo 'Регистрация | HI Cryndel';
-    elseif ($view === 'templates') echo 'Шаблоны | HI Cryndel';
-    else echo 'HI Cryndel - Сообщество игроков Minecraft';
+    if ($view === 'post_view' && $post) echo htmlspecialchars($post['meta_title']) . ' | My Cryndel';
+    elseif ($view === 'profile' && $profileUser) echo htmlspecialchars($profileUser['username']) . ' | Профиль | My Cryndel';
+    elseif ($view === 'create_post') echo (isset($_GET['edit']) ? 'Редактировать пост' : 'Создать пост') . ' | My Cryndel';
+    elseif ($view === 'my_posts') echo 'Мои посты | My Cryndel';
+    elseif ($view === 'login') echo 'Вход | My Cryndel';
+    elseif ($view === 'register') echo 'Регистрация | My Cryndel';
+    elseif ($view === 'templates') echo 'Шаблоны | My Cryndel';
+    elseif ($view === 'music') echo 'Музыка | My Cryndel';
+    elseif ($view === 'stickers') echo 'Стикеры | My Cryndel';
+    elseif ($view === 'coding') echo 'Кодинг | My Cryndel';
+    elseif ($view === 'themes') echo 'Оформление | My Cryndel';
+    elseif ($view === 'notifications_page') echo 'Уведомления | My Cryndel';
+    else echo 'My Cryndel - Сообщество игроков Minecraft';
     ?></title>
     
-    <meta name="description" content="HI Cryndel - сообщество игроков Minecraft. IP: cryndel.ru:25919">
+    <meta name="description" content="My Cryndel - сообщество игроков Minecraft. IP: cryndel.ru:25919">
     <meta name="keywords" content="Minecraft, SMP, Cryndel, сервер, майнкрафт">
-    <meta property="og:site_name" content="HI Cryndel">
+    <meta property="og:site_name" content="My Cryndel">
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="https://hi.cryndel.ru/<?php echo $path; ?>">
     
@@ -3600,24 +3656,814 @@ if (empty($path) || $path === 'index.php') {
 
         @media (max-width: 480px) {
             .profile-name {
-                font-size: 24px;
+                font-size: 20px;
             }
             
             .profile-avatar {
-                width: 100px;
-                height: 100px;
+                width: 80px;
+                height: 80px;
             }
             
-            .comment-item.level-1 { margin-left: 20px; }
-            .comment-item.level-2 { margin-left: 40px; }
-            .comment-item.level-3 { margin-left: 60px; }
+            .comment-item.level-1 { margin-left: 15px; }
+            .comment-item.level-2 { margin-left: 30px; }
+            .comment-item.level-3 { margin-left: 45px; }
+
+            .post-card { padding: 12px; }
+            .post-title { font-size: 16px; }
+            .post-text { font-size: 13px; line-height: 1.5; }
+            .post-author-name { font-size: 13px; }
+            .post-date { font-size: 11px; }
+            .post-footer { font-size: 12px; }
+            .stat { font-size: 12px; }
+            .profile-bio { font-size: 13px; }
+            .profile-stats .stat-value { font-size: 18px; }
+            .profile-stats .stat-label { font-size: 11px; }
+            .content-card { padding: 10px; }
+            .content-card-title { font-size: 14px; }
+            .content-card-meta { font-size: 11px; }
+            h1 { font-size: 20px !important; }
+            .btn-sm { font-size: 12px; padding: 4px 8px; }
+        }
+
+        @media (max-width: 768px) {
+            .post-text { font-size: 14px; }
+            .post-title { font-size: 17px; }
+            body { font-size: 14px; }
+            .nav-link span { display: none; }
+            .content-grid { grid-template-columns: 1fr; }
+            .sticker-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+
+        /* Floating Action Button */
+        .fab-button {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+            z-index: 999;
+            text-decoration: none;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .fab-button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+            color: #fff;
+        }
+        @media (max-width: 768px) {
+            .fab-button { bottom: 80px; right: 16px; width: 48px; height: 48px; font-size: 20px; }
+        }
+
+        /* Content Grid */
+        .content-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 16px;
+        }
+        .content-card {
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            position: relative;
+            transition: box-shadow 0.2s;
+        }
+        .content-card:hover {
+            box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+        }
+        .content-card-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 12px;
+            background: var(--bg-secondary, #f3f4f6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: var(--primary);
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .content-card-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 12px;
+        }
+        .content-card-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .content-card-title {
+            font-weight: 600;
+            font-size: 15px;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .content-card-meta {
+            font-size: 12px;
+            color: var(--text-light);
+        }
+        .content-card-desc {
+            font-size: 12px;
+            color: var(--text-light);
+            margin-top: 4px;
+        }
+        .content-card-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 4px;
+        }
+        .content-card-tags .tag {
+            font-size: 11px;
+            padding: 2px 6px;
+            background: var(--bg-secondary, #f3f4f6);
+            border-radius: 4px;
+        }
+        .content-card-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .content-likes {
+            font-size: 13px;
+            color: var(--text-light);
+        }
+        .badge-ai, .badge-nsfw {
+            position: absolute;
+            top: 8px;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        .badge-ai { right: 8px; background: #6366f1; color: #fff; }
+        .badge-nsfw { right: 40px; background: #ef4444; color: #fff; }
+        .download-warning {
+            width: 100%;
+            font-size: 11px;
+            color: #f59e0b;
+            margin-top: 4px;
+        }
+
+        /* Sticker Grid */
+        .sticker-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 12px;
+        }
+        .sticker-card {
+            position: relative;
+            aspect-ratio: 1;
+            border-radius: 12px;
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            overflow: hidden;
+            transition: transform 0.2s;
+        }
+        .sticker-card:hover {
+            transform: scale(1.05);
+        }
+        .sticker-card img {
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+        }
+        .sticker-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0,0,0,0.5);
+            color: #fff;
+            text-align: center;
+            padding: 4px;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .sticker-card:hover .sticker-overlay {
+            opacity: 1;
+        }
+
+        /* Notifications Page */
+        .notification-item-page {
+            display: flex;
+            gap: 12px;
+            padding: 16px;
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            margin-bottom: 8px;
+            transition: background 0.2s;
+        }
+        .notification-item-page.unread {
+            background: rgba(16, 185, 129, 0.05);
+            border-color: var(--primary);
+        }
+        .notif-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--bg-secondary, #f3f4f6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        .notif-body { flex: 1; min-width: 0; }
+        .notif-text { font-size: 14px; line-height: 1.4; }
+        .notif-text strong { color: var(--primary); }
+        .notif-time { font-size: 12px; color: var(--text-light); margin-top: 4px; }
+
+        /* Profile Cover */
+        .profile-cover {
+            width: 100%;
+            height: 180px;
+            border-radius: 16px 16px 0 0;
+            background: linear-gradient(135deg, var(--primary), #6366f1);
+            margin-bottom: -40px;
+            position: relative;
+        }
+        .profile-cover img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 16px 16px 0 0;
+        }
+
+        /* Profile Status */
+        .profile-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--text-light);
+            margin-top: 4px;
+        }
+        .profile-status .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+        }
+
+        /* Profile Stats Summary (for author) */
+        .profile-stats-summary {
+            background: var(--bg-secondary, #f3f4f6);
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            color: var(--primary);
+            font-weight: 500;
+        }
+
+        /* Profile Icon Tabs */
+        .tabs-icons {
+            display: flex;
+            gap: 0;
+            border-bottom: 2px solid var(--border);
+            margin-bottom: 20px;
+        }
+        .tab-icon {
+            flex: 1;
+            text-align: center;
+            padding: 10px 0;
+            cursor: pointer;
+            color: var(--text-light);
+            font-size: 18px;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: color 0.2s, border-color 0.2s;
+            background: none;
+            border-top: none;
+            border-left: none;
+            border-right: none;
+        }
+        .tab-icon:hover, .tab-icon.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+        .tab-icon .tab-tooltip {
+            display: none;
+            position: absolute;
+            background: #1f2937;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            white-space: nowrap;
+            top: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .tab-icon:hover .tab-tooltip { display: block; }
+
+        /* Widgets */
+        .widget-card {
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: box-shadow 0.2s;
+        }
+        .widget-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .widget-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            background: var(--bg-secondary, #f3f4f6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: var(--primary);
+            flex-shrink: 0;
+        }
+        .widget-info { flex: 1; min-width: 0; }
+        .widget-title { font-weight: 600; font-size: 14px; }
+        .widget-meta { font-size: 12px; color: var(--text-light); }
+
+        /* Role tooltip */
+        .role-icon-wrap {
+            display: inline-flex;
+            position: relative;
+            cursor: pointer;
+        }
+        .role-icon-wrap .role-tooltip {
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1f2937;
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            white-space: nowrap;
+            z-index: 100;
+            margin-bottom: 4px;
+        }
+        .role-icon-wrap:hover .role-tooltip { display: block; }
+
+        /* Special command menus */
+        .special-menu-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+        }
+        .special-menu {
+            background: var(--card-bg, #fff);
+            border-radius: 20px 20px 0 0;
+            max-height: 70vh;
+            width: 100%;
+            max-width: 500px;
+            overflow-y: auto;
+            padding: 20px;
+            animation: slideUp 0.3s ease;
+        }
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+        .special-menu-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .special-menu-header h3 { font-size: 18px; font-weight: 700; }
+        .special-menu-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: var(--text-light);
+        }
+        .special-menu-search {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            margin-bottom: 12px;
+            font-size: 14px;
+        }
+        .special-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .special-menu-item:hover { background: var(--bg-secondary, #f3f4f6); }
+
+        /* Embed cards (in posts/comments) */
+        .embed-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--bg-secondary, #f3f4f6);
+            margin: 8px 0;
+        }
+        .embed-card-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+        .embed-card-icon.music { background: #6366f1; color: #fff; }
+        .embed-card-icon.sticker { background: #f59e0b; color: #fff; }
+        .embed-card-icon.theme { background: #8b5cf6; color: #fff; }
+        .embed-card-icon.code { background: #10b981; color: #fff; }
+        .embed-card-icon.user { background: var(--primary); color: #fff; }
+        .embed-card-info { flex: 1; min-width: 0; }
+        .embed-card-title { font-weight: 600; font-size: 14px; }
+        .embed-card-meta { font-size: 12px; color: var(--text-light); }
+        .embed-card-actions { display: flex; gap: 6px; }
+
+        /* User mention card */
+        .mention-card {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 8px;
+            background: var(--bg-secondary, #f3f4f6);
+            border-radius: 8px;
+            font-size: 13px;
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .mention-card img {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+        }
+        .mention-card:hover {
+            background: var(--primary);
+            color: #fff;
+        }
+
+        /* Sticker modal */
+        .sticker-modal-content {
+            text-align: center;
+            padding: 20px;
+        }
+        .sticker-modal-content img {
+            max-width: 200px;
+            max-height: 200px;
+            margin-bottom: 16px;
+        }
+
+        /* Upload forms */
+        .upload-form {
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .upload-form h3 {
+            margin-bottom: 16px;
+            font-size: 18px;
+        }
+        .checkbox-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin: 12px 0;
+        }
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        /* Settings button in profile corner */
+        .profile-settings-btn {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: rgba(0,0,0,0.3);
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.2s;
+        }
+        .profile-settings-btn:hover { background: rgba(0,0,0,0.5); }
+
+        /* Btn sm */
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 13px;
+            border-radius: 8px;
+        }
+
+        /* ============================================
+           УЛУЧШЕННЫЙ ДИЗАЙН — Профессиональный UI
+        ============================================ */
+
+        /* Smooth scrolling */
+        html { scroll-behavior: smooth; }
+
+        /* Better selection */
+        ::selection {
+            background: var(--primary);
+            color: #fff;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-light); }
+
+        /* Better header glass effect */
+        .header {
+            background: rgba(255,255,255,0.85) !important;
+            backdrop-filter: blur(20px) saturate(180%) !important;
+            -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+        }
+
+        /* Profile cover gradient enhancement */
+        .profile-cover {
+            height: 200px;
+            background: linear-gradient(135deg, #10b981 0%, #3b82f6 50%, #8b5cf6 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        .profile-cover::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: linear-gradient(to top, var(--card-bg), transparent);
+        }
+
+        /* Avatar ring glow */
+        .profile-avatar {
+            border: 4px solid var(--card-bg) !important;
+            box-shadow: 0 0 0 3px var(--primary), 0 4px 20px rgba(16,185,129,0.25);
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Post card hover enhancement */
+        .post-card {
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+        }
+        .post-card:hover {
+            box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+            border-color: rgba(16,185,129,0.2);
+        }
+
+        /* Better buttons with gradient */
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            box-shadow: 0 2px 8px rgba(16,185,129,0.3);
+        }
+        .btn-primary:hover {
+            box-shadow: 0 4px 16px rgba(16,185,129,0.4);
+        }
+
+        /* FAB button glow */
+        .fab-button {
+            background: linear-gradient(135deg, var(--primary), #059669);
+            box-shadow: 0 4px 20px rgba(16,185,129,0.4);
+        }
+        .fab-button:hover {
+            box-shadow: 0 6px 30px rgba(16,185,129,0.5);
+        }
+
+        /* Content card polish */
+        .content-card {
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .content-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            border-color: rgba(16,185,129,0.15);
+        }
+
+        /* Widget card subtle gradient bg */
+        .widget-card {
+            background: linear-gradient(135deg, var(--card-bg), var(--border-light));
+        }
+        .widget-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+        }
+
+        /* Input focus glow */
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: var(--primary) !important;
+            box-shadow: 0 0 0 3px rgba(16,185,129,0.15) !important;
+        }
+
+        /* Role badge shine */
+        .role-badge {
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        /* Tag hover effect */
+        .tag {
+            transition: all 0.2s ease;
+        }
+        .tag:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        /* Like button pulse on active */
+        .like-btn.active i {
+            text-shadow: 0 0 8px rgba(239,68,68,0.4);
+        }
+
+        /* Modal overlay improved */
+        .modal {
+            backdrop-filter: blur(8px);
+        }
+        .modal-content {
+            box-shadow: 0 25px 60px rgba(0,0,0,0.15);
+        }
+
+        /* Notification bell animation */
+        .notification-bell:has(.notification-badge:not(.hidden)) {
+            animation: bellShake 0.5s ease-in-out;
+        }
+        @keyframes bellShake {
+            0%, 100% { transform: rotate(0); }
+            25% { transform: rotate(10deg); }
+            75% { transform: rotate(-10deg); }
+        }
+
+        /* Loading skeleton */
+        .skeleton {
+            background: linear-gradient(90deg, var(--border-light) 25%, var(--border) 50%, var(--border-light) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 8px;
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-light);
+        }
+        .empty-state i {
+            font-size: 48px;
+            color: var(--border);
+            margin-bottom: 16px;
+        }
+        .empty-state h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 8px;
+        }
+        .empty-state p {
+            font-size: 14px;
+            max-width: 300px;
+            margin: 0 auto;
+        }
+
+        /* Badge indicators */
+        .badge-new {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            width: 10px;
+            height: 10px;
+            background: var(--primary);
+            border-radius: 50%;
+            border: 2px solid var(--card-bg);
+        }
+
+        /* Improved mobile bottom spacing for FAB */
+        @media (max-width: 768px) {
+            .main { padding-bottom: 100px; }
+            body { -webkit-tap-highlight-color: transparent; }
+            .header { border-radius: 0; }
+            .post-header { padding: 12px; }
+            .post-content { padding: 12px; }
+            .post-footer { padding: 10px 12px; }
+        }
+
+        /* Gradient text utility */
+        .gradient-text {
+            background: linear-gradient(135deg, var(--primary), #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Page transition */
+        .main {
+            animation: pageEnter 0.3s ease;
+        }
+        @keyframes pageEnter {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Sticker card improvements */
+        .sticker-card {
+            border: 1px solid var(--border);
+            background: linear-gradient(145deg, #fff, #f9fafb);
+        }
+        .sticker-card:hover {
+            transform: scale(1.08);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.12);
+            border-color: var(--primary);
+        }
+
+        /* Notification item transition */
+        .notification-item {
+            transition: all 0.2s ease;
+        }
+        .notification-item-page {
+            transition: all 0.2s ease;
+        }
+        .notification-item-page:hover {
+            transform: translateX(4px);
+        }
+
+        /* Smooth image load */
+        img { transition: opacity 0.3s ease; }
+        img[src=""] { opacity: 0; }
+
+        /* Print styles */
+        @media print {
+            .header, .fab-button, .mobile-menu, .notification-bell { display: none !important; }
+            .main { margin-top: 0; }
         }
     </style>
     
     <?php if ($view === 'profile' && $profileUser): ?>
         <?php $settings = getUserProfileSettings($profileUser['id']); ?>
         <?php if (!empty($settings['custom_css'])): ?>
-            <style><?php echo $settings['custom_css']; ?></style>
+            <style><?php echo str_replace(['</style>', '<script', 'javascript:', 'expression('], '', $settings['custom_css']); ?></style>
         <?php endif; ?>
     <?php endif; ?>
 </head>
@@ -3629,8 +4475,8 @@ if (empty($path) || $path === 'index.php') {
         <div class="container-wide">
             <div class="header-content">
                 <a href="/" class="logo">
-                    <img src="dder.png" alt="HI Cryndel">
-                    <span>HI Cryndel</span>
+                    <img src="dder.png" alt="My Cryndel">
+                    <span>My Cryndel</span>
                 </a>
                 
                 <nav class="nav">
@@ -3638,20 +4484,24 @@ if (empty($path) || $path === 'index.php') {
                         <i class="fas fa-home"></i>
                         <span>Лента</span>
                     </a>
+                    <a href="/music.php" class="nav-link <?php echo $view === 'music' ? 'active' : ''; ?>">
+                        <i class="fas fa-music"></i>
+                        <span>Музыка</span>
+                    </a>
+                    <a href="/stickers.php" class="nav-link <?php echo $view === 'stickers' ? 'active' : ''; ?>">
+                        <i class="fas fa-sticky-note"></i>
+                        <span>Стикеры</span>
+                    </a>
+                    <a href="/coding.php" class="nav-link <?php echo $view === 'coding' ? 'active' : ''; ?>">
+                        <i class="fas fa-code"></i>
+                        <span>Кодинг</span>
+                    </a>
+                    <a href="/themes.php" class="nav-link <?php echo $view === 'themes' ? 'active' : ''; ?>">
+                        <i class="fas fa-palette"></i>
+                        <span>Оформление</span>
+                    </a>
                     
                     <?php if ($user = getCurrentUser()): ?>
-                        <?php if ($user['verified']): ?>
-                            <a href="/?action=create_post" class="nav-link <?php echo $view === 'create_post' ? 'active' : ''; ?>">
-                                <i class="fas fa-pen"></i>
-                                <span>Создать</span>
-                            </a>
-                        <?php endif; ?>
-                        
-                        <a href="/?action=my_posts" class="nav-link <?php echo $view === 'my_posts' ? 'active' : ''; ?>">
-                            <i class="fas fa-file-alt"></i>
-                            <span>Мои посты</span>
-                        </a>
-                        
                         <a href="/<?php echo $user['username']; ?>" class="nav-link <?php echo $view === 'profile' && $profileUser && $profileUser['id'] === $user['id'] ? 'active' : ''; ?>">
                             <img src="<?php echo getAvatarUrl($user); ?>" alt="" style="width: 24px; height: 24px; border-radius: 50%;">
                             <span>Профиль</span>
@@ -3698,8 +4548,8 @@ if (empty($path) || $path === 'index.php') {
     <div class="mobile-menu" id="mobileMenu">
         <div class="mobile-menu-header">
             <a href="/" class="logo">
-                <img src="dder.png" alt="HI Cryndel">
-                <span>HI Cryndel</span>
+                <img src="dder.png" alt="My Cryndel">
+                <span>My Cryndel</span>
             </a>
             <button class="mobile-menu-close" id="mobileMenuClose">
                 <i class="fas fa-times"></i>
@@ -3711,14 +4561,28 @@ if (empty($path) || $path === 'index.php') {
                 <i class="fas fa-home"></i>
                 Лента
             </a>
+            <a href="/music.php" class="mobile-nav-link <?php echo $view === 'music' ? 'active' : ''; ?>">
+                <i class="fas fa-music"></i>
+                Музыка
+            </a>
+            <a href="/stickers.php" class="mobile-nav-link <?php echo $view === 'stickers' ? 'active' : ''; ?>">
+                <i class="fas fa-sticky-note"></i>
+                Стикеры
+            </a>
+            <a href="/coding.php" class="mobile-nav-link <?php echo $view === 'coding' ? 'active' : ''; ?>">
+                <i class="fas fa-code"></i>
+                Кодинг
+            </a>
+            <a href="/themes.php" class="mobile-nav-link <?php echo $view === 'themes' ? 'active' : ''; ?>">
+                <i class="fas fa-palette"></i>
+                Оформление
+            </a>
             
             <?php if ($user = getCurrentUser()): ?>
-                <?php if ($user['verified']): ?>
-                    <a href="/?action=create_post" class="mobile-nav-link <?php echo $view === 'create_post' ? 'active' : ''; ?>">
-                        <i class="fas fa-pen"></i>
-                        Создать пост
-                    </a>
-                <?php endif; ?>
+                <a href="/?action=notifications" class="mobile-nav-link <?php echo $view === 'notifications_page' ? 'active' : ''; ?>">
+                    <i class="fas fa-bell"></i>
+                    Уведомления
+                </a>
                 
                 <a href="/?action=my_posts" class="mobile-nav-link <?php echo $view === 'my_posts' ? 'active' : ''; ?>">
                     <i class="fas fa-file-alt"></i>
@@ -4126,15 +4990,43 @@ if (empty($path) || $path === 'index.php') {
                 $settings = getUserProfileSettings($profileUser['id']);
                 $medals = $settings['medals'] ?? [];
             ?>
+                <!-- Cover -->
+                <div class="profile-cover" style="<?php echo !empty($settings['cover_css']) ? htmlspecialchars($settings['cover_css']) : ''; ?>">
+                    <?php if (!empty($settings['cover_image'])): ?>
+                        <img src="<?php echo htmlspecialchars($settings['cover_image']); ?>" alt="">
+                    <?php endif; ?>
+                    <?php if (getCurrentUser() && getCurrentUser()['id'] === $profileUser['id']): ?>
+                        <button class="profile-settings-btn" onclick="switchTab('profile-settings')" title="Настройки">
+                            <i class="fas fa-cog"></i>
+                        </button>
+                    <?php endif; ?>
+                </div>
+                
                 <div class="profile-header">
                     <img src="<?php echo getAvatarUrl($profileUser); ?>" alt="" class="profile-avatar">
                     
                     <div class="profile-name">
                         @<?php echo $profileUser['username']; ?>
                         <?php if (!empty($profileUser['role'])): ?>
-                            <?php echo $roleStyle['badge']; ?>
+                            <span class="role-icon-wrap">
+                                <?php echo $roleStyle['badge']; ?>
+                                <span class="role-tooltip"><?php echo htmlspecialchars($profileUser['role']); ?></span>
+                            </span>
+                        <?php endif; ?>
+                        <?php if (!empty($settings['server_nick'])): ?>
+                            <span class="role-icon-wrap" title="Ник на сервере">
+                                <i class="fas fa-gamepad" style="color:var(--primary);font-size:14px;"></i>
+                                <span class="role-tooltip"><?php echo htmlspecialchars($settings['server_nick']); ?></span>
+                            </span>
                         <?php endif; ?>
                     </div>
+                    
+                    <?php if (!empty($settings['status'])): ?>
+                        <div class="profile-status">
+                            <span class="status-dot"></span>
+                            <?php echo htmlspecialchars($settings['status']); ?>
+                        </div>
+                    <?php endif; ?>
                     
                     <div class="profile-bio">
                         <?php echo htmlspecialchars($profileUser['bio']); ?>
@@ -4199,6 +5091,18 @@ if (empty($path) || $path === 'index.php') {
                     </div>
                 </div>
                 
+                <?php
+                // Stats summary for post author (only visible to owner)
+                $isOwner = getCurrentUser() && getCurrentUser()['id'] === $profileUser['id'];
+                $totalComments = 0;
+                foreach ($userPosts as $p) { $totalComments += $p['comments_count'] ?? 0; }
+                if ($isOwner && ($totalLikes > 0 || $totalComments > 0)):
+                ?>
+                    <div class="profile-stats-summary">
+                        +<?php echo $totalLikes; ?> лайков и <?php echo $totalComments; ?> комментариев на ваши посты
+                    </div>
+                <?php endif; ?>
+                
                 <?php if (!empty($medals)): ?>
                     <div style="margin-bottom: 20px;">
                         <h3 style="margin-bottom: 15px;">Медали</h3>
@@ -4216,19 +5120,102 @@ if (empty($path) || $path === 'index.php') {
                     </div>
                 <?php endif; ?>
                 
-                <div class="tabs">
-                    <button class="tab active" onclick="switchTab('profile-posts')">Посты</button>
-                    <?php if (getCurrentUser() && getCurrentUser()['id'] === $profileUser['id']): ?>
-                        <button class="tab" onclick="switchTab('profile-settings')">Настройки</button>
+                <!-- Widgets -->
+                <?php
+                $userMusicFiles = glob(MUSIC_DIR . '*.json');
+                $userMusic = [];
+                foreach ($userMusicFiles as $mf) {
+                    $md = json_decode(file_get_contents($mf), true);
+                    if ($md && ($md['user_id'] ?? '') === $profileUser['id']) $userMusic[] = $md;
+                }
+                $userStickerFiles = glob(STICKERS_DIR . '*.json');
+                $userStickers = [];
+                foreach ($userStickerFiles as $sf) {
+                    $sd = json_decode(file_get_contents($sf), true);
+                    if ($sd && ($sd['user_id'] ?? '') === $profileUser['id']) $userStickers[] = $sd;
+                }
+                $userCodingFiles = glob(CODING_DIR . '*.json');
+                $userCoding = [];
+                foreach ($userCodingFiles as $cf) {
+                    $cd = json_decode(file_get_contents($cf), true);
+                    if ($cd && ($cd['user_id'] ?? '') === $profileUser['id']) $userCoding[] = $cd;
+                }
+                ?>
+                
+                <?php if (!empty($settings['widget_music']) && !empty($userMusic)): ?>
+                    <div class="widget-card" onclick="playMusic('<?php echo htmlspecialchars($userMusic[0]['file'] ?? ''); ?>')">
+                        <div class="widget-icon"><i class="fas fa-music"></i></div>
+                        <div class="widget-info">
+                            <div class="widget-title"><?php echo htmlspecialchars($userMusic[0]['title'] ?? 'Музыка'); ?></div>
+                            <div class="widget-meta">Виджет музыки</div>
+                        </div>
+                        <i class="fas fa-play" style="color:var(--primary);"></i>
+                    </div>
+                <?php endif; ?>
+                
+                <?php if (!empty($settings['widget_sticker']) && count($userStickers) >= 20): ?>
+                    <div class="widget-card">
+                        <div class="widget-icon"><i class="fas fa-sticky-note"></i></div>
+                        <div class="widget-info">
+                            <div class="widget-title">Любимый стикерпак</div>
+                            <div class="widget-meta"><?php echo count($userStickers); ?> стикеров</div>
+                        </div>
+                    </div>
+                <?php endif; ?>
+                
+                <?php if (!empty($settings['widget_build']) && count($userCoding) >= 3): ?>
+                    <div class="widget-card">
+                        <div class="widget-icon"><i class="fas fa-cubes"></i></div>
+                        <div class="widget-info">
+                            <div class="widget-title">Моя сборка</div>
+                            <div class="widget-meta"><?php echo count($userCoding); ?> загрузок</div>
+                        </div>
+                    </div>
+                <?php endif; ?>
+                
+                <div class="tabs-icons">
+                    <?php if (!empty($userPosts)): ?>
+                        <button class="tab-icon active" onclick="switchTab('profile-posts')" style="position:relative;">
+                            <i class="fas fa-file-alt"></i>
+                            <span class="tab-tooltip">Посты</span>
+                        </button>
+                    <?php endif; ?>
+                    <?php if (!empty($userMusic)): ?>
+                        <button class="tab-icon" onclick="switchTab('profile-music')" style="position:relative;">
+                            <i class="fas fa-music"></i>
+                            <span class="tab-tooltip">Музыка</span>
+                        </button>
+                    <?php endif; ?>
+                    <?php if (!empty($userStickers)): ?>
+                        <button class="tab-icon" onclick="switchTab('profile-stickers')" style="position:relative;">
+                            <i class="fas fa-sticky-note"></i>
+                            <span class="tab-tooltip">Стикеры</span>
+                        </button>
+                    <?php endif; ?>
+                    <?php if (!empty($userCoding)): ?>
+                        <button class="tab-icon" onclick="switchTab('profile-coding')" style="position:relative;">
+                            <i class="fas fa-code"></i>
+                            <span class="tab-tooltip">Кодинг</span>
+                        </button>
+                    <?php endif; ?>
+                    <button class="tab-icon" onclick="switchTab('profile-likes')" style="position:relative;">
+                        <i class="fas fa-heart"></i>
+                        <span class="tab-tooltip">Нравится</span>
+                    </button>
+                    <?php if ($isOwner): ?>
+                        <button class="tab-icon" onclick="switchTab('profile-settings')" style="position:relative;">
+                            <i class="fas fa-cog"></i>
+                            <span class="tab-tooltip">Настройки</span>
+                        </button>
                     <?php endif; ?>
                 </div>
                 
-                <div id="profile-posts" class="tab-content active">
+                <div id="profile-posts" class="tab-content <?php echo !empty($userPosts) || empty($userMusic) ? 'active' : ''; ?>">
                     <?php if (empty($userPosts)): ?>
                         <div class="post-card" style="padding: 40px; text-align: center;">
                             <i class="fas fa-file-alt" style="font-size: 48px; color: var(--text-light); margin-bottom: 20px;"></i>
                             <h3>Нет постов</h3>
-                            <p style="color: var(--text-light);">Пользователь Пока нечегошуньки не написал..</p>
+                            <p style="color: var(--text-light);">Пользователь пока ничего не написал..</p>
                         </div>
                     <?php else: ?>
                         <?php foreach ($userPosts as $post): ?>
@@ -4280,6 +5267,90 @@ if (empty($path) || $path === 'index.php') {
                             </div>
                         <?php endforeach; ?>
                     <?php endif; ?>
+                </div>
+                
+                <!-- Profile Music Tab -->
+                <div id="profile-music" class="tab-content">
+                    <?php if (empty($userMusic)): ?>
+                        <div class="post-card" style="padding:30px;text-align:center;">
+                            <i class="fas fa-music" style="font-size:48px;color:var(--text-light);margin-bottom:15px;"></i>
+                            <p style="color:var(--text-light);">Тут пока пусто</p>
+                        </div>
+                    <?php else: ?>
+                        <div class="content-grid">
+                        <?php foreach ($userMusic as $m): ?>
+                            <div class="content-card music-card">
+                                <div class="content-card-icon">
+                                    <?php if (!empty($m['icon'])): ?><img src="<?php echo htmlspecialchars($m['icon']); ?>" alt=""><?php else: ?><i class="fas fa-music"></i><?php endif; ?>
+                                </div>
+                                <div class="content-card-info">
+                                    <div class="content-card-title"><?php echo htmlspecialchars($m['title'] ?? ''); ?></div>
+                                </div>
+                                <div class="content-card-actions">
+                                    <?php if (!empty($m['file'])): ?>
+                                        <button class="btn btn-sm btn-outline" onclick="playMusic('<?php echo htmlspecialchars($m['file']); ?>')"><i class="fas fa-play"></i></button>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                
+                <!-- Profile Stickers Tab -->
+                <div id="profile-stickers" class="tab-content">
+                    <?php if (empty($userStickers)): ?>
+                        <div class="post-card" style="padding:30px;text-align:center;">
+                            <i class="fas fa-sticky-note" style="font-size:48px;color:var(--text-light);margin-bottom:15px;"></i>
+                            <p style="color:var(--text-light);">Тут пока пусто</p>
+                        </div>
+                    <?php else: ?>
+                        <div class="sticker-grid">
+                        <?php foreach ($userStickers as $s): ?>
+                            <div class="sticker-card" onclick="openStickerModal(this)" data-info='<?php echo htmlspecialchars(json_encode($s)); ?>'>
+                                <?php if (!empty($s['file'])): ?>
+                                    <img src="<?php echo htmlspecialchars($s['file']); ?>" alt="">
+                                <?php else: ?>
+                                    <i class="fas fa-sticky-note" style="font-size:48px;"></i>
+                                <?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                
+                <!-- Profile Coding Tab -->
+                <div id="profile-coding" class="tab-content">
+                    <?php if (empty($userCoding)): ?>
+                        <div class="post-card" style="padding:30px;text-align:center;">
+                            <i class="fas fa-code" style="font-size:48px;color:var(--text-light);margin-bottom:15px;"></i>
+                            <p style="color:var(--text-light);">Тут пока пусто</p>
+                        </div>
+                    <?php else: ?>
+                        <div class="content-grid">
+                        <?php foreach ($userCoding as $c): ?>
+                            <div class="content-card coding-card">
+                                <div class="content-card-icon"><i class="fas fa-file-code"></i></div>
+                                <div class="content-card-info">
+                                    <div class="content-card-title"><?php echo htmlspecialchars($c['title'] ?? ''); ?></div>
+                                </div>
+                                <div class="content-card-actions">
+                                    <?php if (!empty($c['file'])): ?>
+                                        <a href="<?php echo htmlspecialchars($c['file']); ?>" class="btn btn-sm btn-primary" download><i class="fas fa-download"></i></a>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                
+                <!-- Profile Likes Tab -->
+                <div id="profile-likes" class="tab-content">
+                    <div class="post-card" style="padding:30px;text-align:center;">
+                        <i class="fas fa-heart" style="font-size:48px;color:var(--text-light);margin-bottom:15px;"></i>
+                        <p style="color:var(--text-light);">Посты которые понравились</p>
+                    </div>
                 </div>
                 
                 <?php if (getCurrentUser() && getCurrentUser()['id'] === $profileUser['id']): ?>
@@ -4352,8 +5423,44 @@ if (empty($path) || $path === 'index.php') {
                             <form method="post" action="/">
                                 <input type="hidden" name="action" value="update_profile_settings">
                                 
+                                <h4 style="margin: 20px 0 10px;">Статус</h4>
                                 <div class="form-group">
-                                    <label for="custom_css" class="form-label">Свой CSS</label>
+                                    <label for="status" class="form-label">Статус (как в Discord)</label>
+                                    <input type="text" id="status" name="status" class="form-input" value="<?php echo htmlspecialchars($settings['status'] ?? ''); ?>" maxlength="100" placeholder="Играю в Minecraft...">
+                                </div>
+                                
+                                <h4 style="margin: 20px 0 10px;">Обложка профиля</h4>
+                                <div class="form-group">
+                                    <label for="cover_css" class="form-label">CSS для обложки (градиент, цвет)</label>
+                                    <input type="text" id="cover_css" name="cover_css" class="form-input" value="<?php echo htmlspecialchars($settings['cover_css'] ?? ''); ?>" placeholder="background: linear-gradient(135deg, #667eea, #764ba2)">
+                                    <div class="gradient-presets" style="margin-top:8px;">
+                                        <div class="gradient-preset" style="background: linear-gradient(135deg, #667eea, #764ba2)" onclick="document.getElementById('cover_css').value='background:linear-gradient(135deg,#667eea,#764ba2)'"></div>
+                                        <div class="gradient-preset" style="background: linear-gradient(135deg, #f093fb, #f5576c)" onclick="document.getElementById('cover_css').value='background:linear-gradient(135deg,#f093fb,#f5576c)'"></div>
+                                        <div class="gradient-preset" style="background: linear-gradient(135deg, #4facfe, #00f2fe)" onclick="document.getElementById('cover_css').value='background:linear-gradient(135deg,#4facfe,#00f2fe)'"></div>
+                                        <div class="gradient-preset" style="background: linear-gradient(135deg, #43e97b, #38f9d7)" onclick="document.getElementById('cover_css').value='background:linear-gradient(135deg,#43e97b,#38f9d7)'"></div>
+                                        <div class="gradient-preset" style="background: linear-gradient(135deg, #fa709a, #fee140)" onclick="document.getElementById('cover_css').value='background:linear-gradient(135deg,#fa709a,#fee140)'"></div>
+                                    </div>
+                                </div>
+                                
+                                <h4 style="margin: 20px 0 10px;">Виджеты</h4>
+                                <div class="checkbox-group">
+                                    <label>
+                                        <input type="checkbox" name="widget_music" value="1" <?php echo !empty($settings['widget_music']) ? 'checked' : ''; ?>>
+                                        Виджет музыки
+                                    </label>
+                                    <label>
+                                        <input type="checkbox" name="widget_sticker" value="1" <?php echo !empty($settings['widget_sticker']) ? 'checked' : ''; ?>>
+                                        Виджет стикеров
+                                    </label>
+                                    <label>
+                                        <input type="checkbox" name="widget_build" value="1" <?php echo !empty($settings['widget_build']) ? 'checked' : ''; ?>>
+                                        Виджет сборки
+                                    </label>
+                                </div>
+                                
+                                <h4 style="margin: 20px 0 10px;">Свой CSS</h4>
+                                <div class="form-group">
+                                    <label for="custom_css" class="form-label">CSS код для профиля</label>
                                     <textarea id="custom_css" name="custom_css" class="form-input" rows="8" style="font-family: monospace;"><?php 
                                         echo htmlspecialchars($settings['custom_css'] ?? '');
                                     ?></textarea>
@@ -4361,7 +5468,7 @@ if (empty($path) || $path === 'index.php') {
                                 
                                 <button type="submit" class="btn btn-primary">
                                     <i class="fas fa-save"></i>
-                                    Сохранить стили
+                                    Сохранить настройки
                                 </button>
                             </form>
                             
@@ -5015,7 +6122,426 @@ if (empty($path) || $path === 'index.php') {
                         </div>
                     <?php endforeach; ?>
                 <?php endif; ?>
+                
+                <?php if (getCurrentUser() && getCurrentUser()['verified']): ?>
+                    <a href="/?action=create_post" class="fab-button" title="Создать пост">
+                        <i class="fas fa-plus"></i>
+                    </a>
+                <?php endif; ?>
             
+            <?php
+            elseif ($view === 'music'):
+            ?>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                    <h1 style="font-size:24px;font-weight:700;"><i class="fas fa-music"></i> Музыка</h1>
+                    <?php if (getCurrentUser()): ?>
+                        <a href="/?action=music&upload=1" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> Загрузить</a>
+                    <?php endif; ?>
+                </div>
+                <?php if (getCurrentUser() && isset($_GET['upload'])): ?>
+                <div class="upload-form">
+                    <h3><i class="fas fa-upload"></i> Загрузить музыку</h3>
+                    <form method="post" action="/api.php" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="upload_music">
+                        <div class="form-group">
+                            <label class="form-label">Название *</label>
+                            <input type="text" name="title" class="form-input" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Юз (уникальный) *</label>
+                            <input type="text" name="use" class="form-input" required placeholder="my_cool_song">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Иконка (загрузить)</label>
+                            <input type="file" name="icon_file" accept="image/*">
+                            <label class="form-label" style="margin-top:6px;">или ссылка</label>
+                            <input type="url" name="icon_url" class="form-input" placeholder="https://...">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Музыка (загрузить)</label>
+                            <input type="file" name="music_file" accept="audio/*">
+                            <label class="form-label" style="margin-top:6px;">или ссылка</label>
+                            <input type="url" name="music_url" class="form-input" placeholder="https://...">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Описание</label>
+                            <textarea name="description" class="form-input" rows="3"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Теги (через запятую)</label>
+                            <input type="text" name="tags" class="form-input" placeholder="minecraft, ambient, chill">
+                        </div>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" name="is_author"> Я являюсь автором</label>
+                            <label><input type="checkbox" name="is_ai"> Создано с использованием ИИ</label>
+                            <label><input type="checkbox" name="is_nsfw"> 18+</label>
+                            <label><input type="checkbox" name="agreed" required> Я знаком с правилами и согласен *</label>
+                        </div>
+                        <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Загрузить</button>
+                    </form>
+                </div>
+                <?php endif; ?>
+                
+                <div class="search-minimal" style="margin-bottom:20px;">
+                    <input type="text" id="musicSearch" class="form-input" placeholder="Поиск музыки..." oninput="filterCards('music')">
+                </div>
+                <?php
+                    $musicFiles = glob(MUSIC_DIR . '*.json');
+                    $musicItems = [];
+                    foreach ($musicFiles as $f) {
+                        $item = json_decode(file_get_contents($f), true);
+                        if ($item) $musicItems[] = $item;
+                    }
+                    usort($musicItems, function($a, $b) { return ($b['likes'] ?? 0) - ($a['likes'] ?? 0); });
+                ?>
+                <?php if (empty($musicItems)): ?>
+                    <div class="post-card" style="padding:40px;text-align:center;">
+                        <i class="fas fa-music" style="font-size:48px;color:var(--text-light);margin-bottom:20px;"></i>
+                        <h3>Пока нет музыки</h3>
+                        <p style="color:var(--text-light);">Будьте первым кто загрузит!</p>
+                    </div>
+                <?php else: ?>
+                    <div class="content-grid" id="musicGrid">
+                    <?php foreach ($musicItems as $item): ?>
+                        <div class="content-card music-card" data-title="<?php echo htmlspecialchars($item['title'] ?? ''); ?>">
+                            <div class="content-card-icon">
+                                <?php if (!empty($item['icon'])): ?>
+                                    <img src="<?php echo htmlspecialchars($item['icon']); ?>" alt="">
+                                <?php else: ?>
+                                    <i class="fas fa-music"></i>
+                                <?php endif; ?>
+                            </div>
+                            <div class="content-card-info">
+                                <div class="content-card-title"><?php echo htmlspecialchars($item['title'] ?? 'Без названия'); ?></div>
+                                <div class="content-card-meta">@<?php echo htmlspecialchars($item['author'] ?? ''); ?></div>
+                                <?php if (!empty($item['tags'])): ?>
+                                    <div class="content-card-tags">
+                                        <?php foreach (explode(',', $item['tags']) as $tag): ?>
+                                            <span class="tag"><?php echo htmlspecialchars(trim($tag)); ?></span>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                            <div class="content-card-actions">
+                                <?php if (!empty($item['file'])): ?>
+                                    <button class="btn btn-sm btn-outline" onclick="playMusic('<?php echo htmlspecialchars($item['file']); ?>')"><i class="fas fa-play"></i></button>
+                                <?php endif; ?>
+                                <span class="content-likes"><i class="far fa-heart"></i> <?php echo $item['likes'] ?? 0; ?></span>
+                            </div>
+                            <?php if (!empty($item['is_ai'])): ?><span class="badge-ai">AI</span><?php endif; ?>
+                            <?php if (!empty($item['is_nsfw'])): ?><span class="badge-nsfw">18+</span><?php endif; ?>
+                        </div>
+                    <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+
+            <?php
+            elseif ($view === 'stickers'):
+            ?>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                    <h1 style="font-size:24px;font-weight:700;"><i class="fas fa-sticky-note"></i> Стикеры</h1>
+                    <?php if (getCurrentUser()): ?>
+                        <a href="/?action=stickers&upload=1" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> Загрузить</a>
+                    <?php endif; ?>
+                </div>
+                <?php if (getCurrentUser() && isset($_GET['upload'])): ?>
+                <div class="upload-form">
+                    <h3><i class="fas fa-upload"></i> Загрузить стикер</h3>
+                    <form method="post" action="/api.php" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="upload_sticker">
+                        <div class="form-group">
+                            <label class="form-label">Название *</label>
+                            <input type="text" name="title" class="form-input" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Юз (уникальный)</label>
+                            <input type="text" name="use" class="form-input" placeholder="cute_cat">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Стикер (PNG, GIF, WebP, WebM)</label>
+                            <input type="file" name="sticker_file" accept=".png,.gif,.webp,.webm,.jpg,.jpeg">
+                            <label class="form-label" style="margin-top:6px;">или ссылка</label>
+                            <input type="url" name="sticker_url" class="form-input" placeholder="https://...">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Описание</label>
+                            <textarea name="description" class="form-input" rows="2"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Теги</label>
+                            <input type="text" name="tags" class="form-input" placeholder="кот, смешно">
+                        </div>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" name="is_author"> Я являюсь автором</label>
+                            <label><input type="checkbox" name="is_nsfw"> 18+</label>
+                            <label><input type="checkbox" name="agreed" required> Я знаком с правилами *</label>
+                        </div>
+                        <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Загрузить</button>
+                    </form>
+                </div>
+                <?php endif; ?>
+                
+                <div class="search-minimal" style="margin-bottom:20px;">
+                    <input type="text" id="stickerSearch" class="form-input" placeholder="Поиск стикеров..." oninput="filterCards('sticker')">
+                </div>
+                <?php
+                    $stickerFiles = glob(STICKERS_DIR . '*.json');
+                    $stickerItems = [];
+                    foreach ($stickerFiles as $f) {
+                        $item = json_decode(file_get_contents($f), true);
+                        if ($item) $stickerItems[] = $item;
+                    }
+                    usort($stickerItems, function($a, $b) { return ($b['likes'] ?? 0) - ($a['likes'] ?? 0); });
+                ?>
+                <?php if (empty($stickerItems)): ?>
+                    <div class="post-card" style="padding:40px;text-align:center;">
+                        <i class="fas fa-sticky-note" style="font-size:48px;color:var(--text-light);margin-bottom:20px;"></i>
+                        <h3>Пока нет стикеров</h3>
+                        <p style="color:var(--text-light);">Загрузите первый стикер!</p>
+                    </div>
+                <?php else: ?>
+                    <div class="sticker-grid" id="stickerGrid">
+                    <?php foreach ($stickerItems as $item): ?>
+                        <div class="sticker-card" data-title="<?php echo htmlspecialchars($item['title'] ?? ''); ?>" onclick="openStickerModal(this)" data-info='<?php echo htmlspecialchars(json_encode($item)); ?>'>
+                            <?php if (!empty($item['file'])): ?>
+                                <img src="<?php echo htmlspecialchars($item['file']); ?>" alt="<?php echo htmlspecialchars($item['title'] ?? ''); ?>">
+                            <?php else: ?>
+                                <i class="fas fa-sticky-note" style="font-size:48px;"></i>
+                            <?php endif; ?>
+                            <div class="sticker-overlay">
+                                <span class="content-likes"><i class="far fa-heart"></i> <?php echo $item['likes'] ?? 0; ?></span>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+
+            <?php
+            elseif ($view === 'coding'):
+            ?>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                    <h1 style="font-size:24px;font-weight:700;"><i class="fas fa-code"></i> Кодинг</h1>
+                    <?php if (getCurrentUser()): ?>
+                        <a href="/?action=coding&upload=1" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> Загрузить</a>
+                    <?php endif; ?>
+                </div>
+                <?php if (getCurrentUser() && isset($_GET['upload'])): ?>
+                <div class="upload-form">
+                    <h3><i class="fas fa-upload"></i> Загрузить код / сборку</h3>
+                    <form method="post" action="/api.php" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="upload_coding">
+                        <div class="form-group">
+                            <label class="form-label">Название *</label>
+                            <input type="text" name="title" class="form-input" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Юз (уникальный)</label>
+                            <input type="text" name="use" class="form-input" placeholder="my_mod_v2">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Файл (ZIP, RAR, JAR и др.)</label>
+                            <input type="file" name="code_file">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Описание</label>
+                            <textarea name="description" class="form-input" rows="3"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Теги</label>
+                            <input type="text" name="tags" class="form-input" placeholder="minecraft, мод, сборка">
+                        </div>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" name="is_author"> Я являюсь автором</label>
+                            <label><input type="checkbox" name="agreed" required> Я знаком с правилами *</label>
+                        </div>
+                        <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Загрузить</button>
+                    </form>
+                </div>
+                <?php endif; ?>
+                
+                <div class="search-minimal" style="margin-bottom:20px;">
+                    <input type="text" id="codingSearch" class="form-input" placeholder="Поиск кода, сборок..." oninput="filterCards('coding')">
+                </div>
+                <?php
+                    $codingFiles = glob(CODING_DIR . '*.json');
+                    $codingItems = [];
+                    foreach ($codingFiles as $f) {
+                        $item = json_decode(file_get_contents($f), true);
+                        if ($item) $codingItems[] = $item;
+                    }
+                    usort($codingItems, function($a, $b) { return ($b['likes'] ?? 0) - ($a['likes'] ?? 0); });
+                ?>
+                <?php if (empty($codingItems)): ?>
+                    <div class="post-card" style="padding:40px;text-align:center;">
+                        <i class="fas fa-code" style="font-size:48px;color:var(--text-light);margin-bottom:20px;"></i>
+                        <h3>Пока нет загрузок</h3>
+                        <p style="color:var(--text-light);">Загрузите свой код или сборку!</p>
+                    </div>
+                <?php else: ?>
+                    <div class="content-grid" id="codingGrid">
+                    <?php foreach ($codingItems as $item): ?>
+                        <div class="content-card coding-card" data-title="<?php echo htmlspecialchars($item['title'] ?? ''); ?>">
+                            <div class="content-card-icon"><i class="fas fa-file-code"></i></div>
+                            <div class="content-card-info">
+                                <div class="content-card-title"><?php echo htmlspecialchars($item['title'] ?? 'Без названия'); ?></div>
+                                <div class="content-card-meta">@<?php echo htmlspecialchars($item['author'] ?? ''); ?></div>
+                                <?php if (!empty($item['description'])): ?>
+                                    <div class="content-card-desc"><?php echo htmlspecialchars(mb_substr($item['description'], 0, 80)); ?></div>
+                                <?php endif; ?>
+                            </div>
+                            <div class="content-card-actions">
+                                <?php if (!empty($item['file'])): ?>
+                                    <a href="<?php echo htmlspecialchars($item['file']); ?>" class="btn btn-sm btn-primary" download><i class="fas fa-download"></i></a>
+                                <?php endif; ?>
+                                <span class="content-likes"><i class="far fa-heart"></i> <?php echo $item['likes'] ?? 0; ?></span>
+                            </div>
+                            <div class="download-warning"><i class="fas fa-exclamation-triangle"></i> Будьте осторожны с загрузками</div>
+                        </div>
+                    <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+
+            <?php
+            elseif ($view === 'themes'):
+            ?>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                    <h1 style="font-size:24px;font-weight:700;"><i class="fas fa-palette"></i> Оформление</h1>
+                    <?php if (getCurrentUser()): ?>
+                        <a href="/?action=themes&upload=1" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> Создать</a>
+                    <?php endif; ?>
+                </div>
+                <?php if (getCurrentUser() && isset($_GET['upload'])): ?>
+                <div class="upload-form">
+                    <h3><i class="fas fa-plus"></i> Создать оформление</h3>
+                    <form method="post" action="/api.php">
+                        <input type="hidden" name="action" value="upload_theme">
+                        <div class="form-group">
+                            <label class="form-label">Название *</label>
+                            <input type="text" name="title" class="form-input" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Юз (уникальный)</label>
+                            <input type="text" name="use" class="form-input" placeholder="dark_neon">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">CSS код *</label>
+                            <textarea name="css_code" class="form-input" rows="8" style="font-family:monospace;" required placeholder=".profile-header { background: #1a1a2e; color: #eee; }"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Описание</label>
+                            <textarea name="description" class="form-input" rows="2"></textarea>
+                        </div>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" name="agreed" required> Я знаком с правилами *</label>
+                        </div>
+                        <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Создать</button>
+                    </form>
+                </div>
+                <?php endif; ?>
+                
+                <div class="search-minimal" style="margin-bottom:20px;">
+                    <input type="text" id="themeSearch" class="form-input" placeholder="Поиск оформлений..." oninput="filterCards('theme')">
+                </div>
+                <?php
+                    $themeFiles = glob(THEMES_DIR . '*.json');
+                    $themeItems = [];
+                    foreach ($themeFiles as $f) {
+                        $item = json_decode(file_get_contents($f), true);
+                        if ($item) $themeItems[] = $item;
+                    }
+                    usort($themeItems, function($a, $b) { return ($b['likes'] ?? 0) - ($a['likes'] ?? 0); });
+                ?>
+                <?php if (empty($themeItems)): ?>
+                    <div class="post-card" style="padding:40px;text-align:center;">
+                        <i class="fas fa-palette" style="font-size:48px;color:var(--text-light);margin-bottom:20px;"></i>
+                        <h3>Пока нет оформлений</h3>
+                        <p style="color:var(--text-light);">Создайте первое CSS оформление!</p>
+                    </div>
+                <?php else: ?>
+                    <div class="content-grid" id="themeGrid">
+                    <?php foreach ($themeItems as $item): ?>
+                        <div class="content-card theme-card" data-title="<?php echo htmlspecialchars($item['title'] ?? ''); ?>">
+                            <div class="content-card-icon" style="<?php echo !empty($item['preview_css']) ? htmlspecialchars($item['preview_css']) : ''; ?>">
+                                <i class="fas fa-palette"></i>
+                            </div>
+                            <div class="content-card-info">
+                                <div class="content-card-title"><?php echo htmlspecialchars($item['title'] ?? 'Без названия'); ?></div>
+                                <div class="content-card-meta">@<?php echo htmlspecialchars($item['author'] ?? ''); ?></div>
+                            </div>
+                            <div class="content-card-actions">
+                                <button class="btn btn-sm btn-outline" onclick="copyCssCode('<?php echo htmlspecialchars($item['id'] ?? ''); ?>')"><i class="fas fa-copy"></i> Копировать</button>
+                                <span class="content-likes"><i class="far fa-heart"></i> <?php echo $item['likes'] ?? 0; ?></span>
+                            </div>
+                            <?php if (!empty($item['css_code'])): ?>
+                                <textarea class="hidden" id="css-<?php echo htmlspecialchars($item['id'] ?? ''); ?>"><?php echo htmlspecialchars($item['css_code']); ?></textarea>
+                            <?php endif; ?>
+                        </div>
+                    <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+
+            <?php
+            elseif ($view === 'notifications_page'):
+                $currentUser = getCurrentUser();
+                $notifFile = NOTIFICATIONS_DIR . $currentUser['id'] . '.json';
+                $allNotifs = [];
+                if (file_exists($notifFile)) {
+                    $allNotifs = json_decode(file_get_contents($notifFile), true) ?: [];
+                    usort($allNotifs, function($a, $b) {
+                        return strtotime($b['created_at'] ?? '0') - strtotime($a['created_at'] ?? '0');
+                    });
+                    $allNotifs = array_slice($allNotifs, 0, 100);
+                }
+            ?>
+                <div style="margin-bottom:20px;">
+                    <h1 style="font-size:24px;font-weight:700;"><i class="fas fa-bell"></i> Уведомления</h1>
+                </div>
+                <?php if (empty($allNotifs)): ?>
+                    <div class="post-card" style="padding:40px;text-align:center;">
+                        <i class="fas fa-bell-slash" style="font-size:48px;color:var(--text-light);margin-bottom:20px;"></i>
+                        <h3>Нет уведомлений</h3>
+                    </div>
+                <?php else: ?>
+                    <?php foreach ($allNotifs as $notif): ?>
+                        <div class="notification-item-page <?php echo empty($notif['read']) ? 'unread' : ''; ?>">
+                            <div class="notif-icon">
+                                <?php if (($notif['type'] ?? '') === 'like'): ?>
+                                    <i class="fas fa-heart" style="color:#ef4444;"></i>
+                                <?php elseif (($notif['type'] ?? '') === 'comment'): ?>
+                                    <i class="fas fa-comment" style="color:#3b82f6;"></i>
+                                <?php elseif (($notif['type'] ?? '') === 'mention'): ?>
+                                    <i class="fas fa-at" style="color:#8b5cf6;"></i>
+                                <?php else: ?>
+                                    <i class="fas fa-bell" style="color:var(--primary);"></i>
+                                <?php endif; ?>
+                            </div>
+                            <div class="notif-body">
+                                <div class="notif-text">
+                                    <?php
+                                    $data = $notif['data'] ?? [];
+                                    $fromUser = $data['from_username'] ?? '';
+                                    $postTitle = $data['post_title'] ?? '';
+                                    $type = $notif['type'] ?? '';
+                                    if ($type === 'like') {
+                                        echo '<strong>@' . htmlspecialchars($fromUser) . '</strong> поставил(а) лайк на ваш пост <em>' . htmlspecialchars($postTitle) . '</em>';
+                                    } elseif ($type === 'comment') {
+                                        echo '<strong>@' . htmlspecialchars($fromUser) . '</strong> написал(а) комментарий: <em>"' . htmlspecialchars($data['content'] ?? '') . '"</em>';
+                                    } elseif ($type === 'mention') {
+                                        echo '<strong>@' . htmlspecialchars($fromUser) . '</strong> упомянул(а) вас: <em>"' . htmlspecialchars($data['content'] ?? '') . '"</em>';
+                                    } else {
+                                        echo htmlspecialchars($notif['message'] ?? 'Уведомление');
+                                    }
+                                    ?>
+                                </div>
+                                <div class="notif-time"><?php echo date('d.m.Y H:i', strtotime($notif['created_at'] ?? 'now')); ?></div>
+                                <?php if (!empty($data['post_slug'])): ?>
+                                    <a href="/post/<?php echo htmlspecialchars($data['post_slug']); ?>" class="btn btn-sm btn-outline" style="margin-top:5px;">Подробнее</a>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+
             <?php
             elseif ($view === 'templates'):
             ?>
@@ -5061,6 +6587,11 @@ if (empty($path) || $path === 'index.php') {
                             <label for="modal-bio" class="form-label">О себе</label>
                             <textarea id="modal-bio" name="bio" class="form-input"><?php echo htmlspecialchars($profileUser['bio']); ?></textarea>
                         </div>
+
+                        <div class="form-group">
+                            <label for="modal-status" class="form-label">Статус</label>
+                            <input type="text" id="modal-status" name="status" class="form-input" value="<?php echo htmlspecialchars($settings['status'] ?? ''); ?>" maxlength="100" placeholder="Играю в Minecraft...">
+                        </div>
                         
                         <div class="form-group">
                             <label for="modal-website" class="form-label">Веб-сайт</label>
@@ -5087,6 +6618,28 @@ if (empty($path) || $path === 'index.php') {
                             <input type="text" id="modal-telegram" name="telegram" class="form-input" value="<?php echo $profileUser['social']['telegram'] ?? ''; ?>">
                         </div>
                         
+                        <div class="form-group">
+                            <label class="form-label">Обложка профиля (CSS)</label>
+                            <input type="text" name="cover_css" class="form-input" value="<?php echo htmlspecialchars($settings['cover_css'] ?? ''); ?>" placeholder="linear-gradient(135deg, #667eea 0%, #764ba2 100%)">
+                            <small style="color:var(--text-light);">Пример: linear-gradient(135deg, #667eea, #764ba2) или цвет #1a1a2e</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Виджеты</label>
+                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                                <input type="checkbox" name="widget_music" <?php echo !empty($settings['widget_music']) ? 'checked' : ''; ?>>
+                                <span>Виджет музыки</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                                <input type="checkbox" name="widget_sticker" <?php echo !empty($settings['widget_sticker']) ? 'checked' : ''; ?>>
+                                <span>Любимый стикер-пак</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                                <input type="checkbox" name="widget_build" <?php echo !empty($settings['widget_build']) ? 'checked' : ''; ?>>
+                                <span>Виджет сборки</span>
+                            </label>
+                        </div>
+
                         <div class="flex gap-4 mt-4">
                             <button type="submit" class="btn btn-primary flex-1">Сохранить</button>
                             <button type="button" class="btn btn-outline flex-1" onclick="toggleModal('edit-profile-modal')">Отмена</button>
@@ -5103,7 +6656,7 @@ if (empty($path) || $path === 'index.php') {
             <div class="onboarding-icon">
                
             </div>
-            <h2 class="onboarding-title">Добро пожаловать в HI Cryndel!</h2>
+            <h2 class="onboarding-title">Добро пожаловать в My Cryndel!</h2>
             <div class="onboarding-text">
                 <p>Краткая инструкция:</p>
                 <p>📝 Создавайте посты и делитес</p>
@@ -5883,13 +7436,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 let icon = 'fas fa-bell';
                 
                 if (notification.type === 'mention') {
-                    content = '<p><strong>Вас упомянули</strong> в комментарии ✅ </p>';
+                    const fromUser = notification.data?.from_username || '';
+                    content = '<p><strong>@' + escapeHtml(fromUser) + '</strong> упомянул(а) вас в комментарии</p>';
                     icon = 'fas fa-at';
                 } else if (notification.type === 'like') {
-                    content = '<p><strong>Кому-то понравился</strong> ваш пост O.O</p>';
+                    const fromUser = notification.data?.from_username || 'Кто-то';
+                    const postTitle = notification.data?.post_title || 'ваш пост';
+                    content = '<p><strong>@' + escapeHtml(fromUser) + '</strong> поставил(а) ❤️ на «' + escapeHtml(postTitle) + '»</p>';
                     icon = 'fas fa-heart';
                 } else if (notification.type === 'comment') {
-                    content = '<p><strong>Новый комментарий</strong> к вашему посту </p>';
+                    const fromUser = notification.data?.from_username || 'Кто-то';
+                    const commentText = notification.data?.comment_preview || '';
+                    content = '<p><strong>@' + escapeHtml(fromUser) + '</strong> написал(а): ' + escapeHtml(commentText) + '</p>';
                     icon = 'fas fa-comment';
                 }
                 
@@ -5989,6 +7547,427 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const modal = document.getElementById('onboardingModal');
         if (modal) modal.classList.remove('active');
+    };
+
+    // ============================================
+    // ФИЛЬТРАЦИЯ КАРТОЧЕК (музыка, стикеры, код, оформление)
+    // ============================================
+    window.filterCards = function(type) {
+        const input = document.getElementById(type + 'Search') || document.getElementById(type === 'sticker' ? 'stickerSearch' : type + 'Search');
+        if (!input) return;
+        const query = input.value.toLowerCase();
+        const container = input.closest('.content-section') || input.parentElement?.parentElement;
+        if (!container) return;
+        const cards = container.querySelectorAll('.content-card, .sticker-item');
+        cards.forEach(card => {
+            const title = (card.querySelector('.card-title')?.textContent || card.dataset.title || '').toLowerCase();
+            const tags = (card.querySelector('.card-tags')?.textContent || card.dataset.tags || '').toLowerCase();
+            const author = (card.querySelector('.card-author')?.textContent || '').toLowerCase();
+            card.style.display = (title.includes(query) || tags.includes(query) || author.includes(query)) ? '' : 'none';
+        });
+    };
+
+    // ============================================
+    // ВОСПРОИЗВЕДЕНИЕ МУЗЫКИ ИЗ КАРТОЧЕК
+    // ============================================
+    window.playMusic = function(url, title) {
+        if (audio) { audio.pause(); }
+        audio = new Audio(url);
+        audio.play();
+        isPlaying = true;
+
+        const soundPlayer = document.getElementById('soundPlayer');
+        if (soundPlayer) {
+            soundPlayer.classList.remove('hidden');
+            const soundLabel = soundPlayer.querySelector('label');
+            if (soundLabel) soundLabel.textContent = '🎵 ' + (title || 'Музыка');
+        }
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        if (playPauseBtn) playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+        showNotification('Воспроизведение: ' + (title || ''));
+    };
+
+    // ============================================
+    // МОДАЛЬНОЕ ОКНО СТИКЕРА
+    // ============================================
+    window.openStickerModal = function(stickerData) {
+        let modal = document.getElementById('stickerInfoModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'stickerInfoModal';
+            modal.className = 'modal';
+            modal.innerHTML = '<div class="modal-content" style="max-width:400px;text-align:center;"><div class="modal-header"><h3 class="modal-title" id="stickerModalTitle"></h3><button class="modal-close" onclick="toggleModal(\'stickerInfoModal\')">&times;</button></div><div class="modal-body"><div id="stickerModalImage" style="margin-bottom:16px;"></div><p id="stickerModalAuthor" style="color:var(--text-light);"></p><p id="stickerModalDesc"></p><div id="stickerModalTags" style="margin-top:8px;"></div><div style="margin-top:16px;"><button class="btn btn-primary btn-sm" id="stickerLikeBtn" onclick="likeItem(this.dataset.slug,\'sticker\',this)"><i class="far fa-heart"></i> <span class="like-count">0</span></button></div></div></div>';
+            document.body.appendChild(modal);
+        }
+        const data = typeof stickerData === 'string' ? JSON.parse(stickerData) : stickerData;
+        document.getElementById('stickerModalTitle').textContent = data.title || 'Стикер';
+        document.getElementById('stickerModalAuthor').textContent = '@' + (data.author || '');
+        document.getElementById('stickerModalDesc').textContent = data.description || '';
+        const imgDiv = document.getElementById('stickerModalImage');
+        if (data.file && (data.file.endsWith('.webm') || data.file.endsWith('.mp4'))) {
+            imgDiv.innerHTML = '<video src="' + data.file + '" autoplay loop muted style="max-width:100%;max-height:250px;border-radius:12px;"></video>';
+        } else {
+            imgDiv.innerHTML = '<img src="' + (data.file || '') + '" style="max-width:100%;max-height:250px;border-radius:12px;">';
+        }
+        const tagsDiv = document.getElementById('stickerModalTags');
+        if (data.tags) {
+            tagsDiv.innerHTML = data.tags.split(',').map(t => '<span class="tag">' + escapeHtml(t.trim()) + '</span>').join(' ');
+        } else { tagsDiv.innerHTML = ''; }
+        const likeBtn = document.getElementById('stickerLikeBtn');
+        if (likeBtn) {
+            likeBtn.dataset.slug = data.slug || '';
+            likeBtn.querySelector('.like-count').textContent = data.likes || 0;
+        }
+        toggleModal('stickerInfoModal');
+    };
+
+    // ============================================
+    // КОПИРОВАНИЕ CSS КОДА (оформление)
+    // ============================================
+    window.copyCssCode = function(cssCode) {
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(cssCode).then(() => showNotification('CSS код скопирован!')).catch(() => fallbackCopy(cssCode));
+        } else { fallbackCopy(cssCode); }
+    };
+    function fallbackCopy(text) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showNotification('CSS код скопирован!');
+    }
+
+    // ============================================
+    // ЛАЙКИ ДЛЯ КАРТОЧЕК (music/sticker/coding/theme)
+    // ============================================
+    window.likeItem = function(type, itemId, btn) {
+        <?php if (!getCurrentUser()): ?>
+            window.location.href = '/?action=login';
+            return;
+        <?php endif; ?>
+
+        fetch('/api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'action=like_item&item_id=' + encodeURIComponent(itemId) + '&item_type=' + encodeURIComponent(type)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (btn) {
+                const icon = btn.querySelector('i');
+                const count = btn.querySelector('.like-count');
+                if (data.liked) {
+                    if (icon) { icon.classList.remove('far'); icon.classList.add('fas'); }
+                    btn.classList.add('active');
+                } else {
+                    if (icon) { icon.classList.remove('fas'); icon.classList.add('far'); }
+                    btn.classList.remove('active');
+                }
+                if (count) count.textContent = data.likes;
+            }
+        })
+        .catch(e => console.error('Like error:', e));
+    };
+
+    // API call helper
+    window.apiCall = function(url, data) {
+        const body = new URLSearchParams(data).toString();
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body
+        }).then(r => r.json());
+    };
+
+    // Toast notification
+    window.showToast = function(msg, type) {
+        const toast = document.createElement('div');
+        toast.className = 'toast ' + (type || 'success');
+        toast.innerHTML = '<i class="fas fa-' + (type === 'error' ? 'exclamation-circle' : 'check-circle') + '"></i> ' + msg;
+        toast.style.cssText = 'position:fixed;bottom:20px;right:20px;padding:12px 20px;background:#10b981;color:#fff;border-radius:12px;z-index:99999;font-size:14px;font-weight:500;box-shadow:0 4px 12px rgba(0,0,0,0.15);animation:fadeInUp 0.3s ease;display:flex;align-items:center;gap:8px;';
+        if (type === 'error') toast.style.background = '#ef4444';
+        document.body.appendChild(toast);
+        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+    };
+
+    // ============================================
+    // СПЕЦИАЛЬНЫЕ СИМВОЛЫ: §, ;, ~, &, @@
+    // Менюшки для контента в постах/комментариях
+    // ============================================
+    function initSpecialCommands() {
+        // Support both textarea and contenteditable elements
+        const textInputs = document.querySelectorAll('textarea[name="content"], textarea[name="comment"], [contenteditable="true"]');
+        textInputs.forEach(input => {
+            const isContentEditable = input.hasAttribute('contenteditable');
+            input.addEventListener('input', function(e) {
+                let textBefore = '';
+                if (isContentEditable) {
+                    const sel = window.getSelection();
+                    if (sel.rangeCount) {
+                        const range = sel.getRangeAt(0);
+                        const preRange = range.cloneRange();
+                        preRange.selectNodeContents(this);
+                        preRange.setEnd(range.startContainer, range.startOffset);
+                        textBefore = preRange.toString();
+                    }
+                } else {
+                    const val = this.value;
+                    const cursorPos = this.selectionStart;
+                    textBefore = val.substring(0, cursorPos);
+                }
+
+                const lastWord = textBefore.split(/\s/).pop();
+
+                if (lastWord === '§') {
+                    showCommandMenu('music', this);
+                } else if (lastWord === ';') {
+                    showCommandMenu('sticker', this);
+                } else if (lastWord === '~') {
+                    showCommandMenu('theme', this);
+                } else if (lastWord === '&') {
+                    showCommandMenu('coding', this);
+                } else if (lastWord.startsWith('@@')) {
+                    showUserMentionMenu(lastWord.substring(2), this);
+                } else {
+                    hideCommandMenu();
+                }
+            });
+        });
+    }
+    initSpecialCommands();
+
+    let activeCommandMenu = null;
+
+    function showCommandMenu(type, inputEl) {
+        hideCommandMenu();
+        const menu = document.createElement('div');
+        menu.className = 'command-menu';
+        menu.id = 'commandMenu';
+        const typeNames = { music: 'Музыка', sticker: 'Стикеры', theme: 'Оформление', coding: 'Кодинг' };
+        const typeIcons = { music: 'fa-music', sticker: 'fa-sticky-note', theme: 'fa-palette', coding: 'fa-code' };
+        menu.innerHTML = `<div class="command-menu-header"><i class="fas ${typeIcons[type]}"></i> ${typeNames[type]}</div><div class="command-menu-search"><input type="text" placeholder="Поиск по юз..." class="form-input" id="cmdSearchInput"></div><div class="command-menu-list" id="cmdList"><div style="padding:12px;color:var(--text-light);text-align:center;">Загрузка...</div></div>`;
+
+        // Position near the textarea
+        const rect = inputEl.getBoundingClientRect();
+        menu.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom+4}px;z-index:9999;width:320px;max-height:300px;background:var(--card-bg);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.15);overflow:hidden;`;
+
+        document.body.appendChild(menu);
+        activeCommandMenu = menu;
+
+        // Fetch items
+        fetch('/api.php?action=get_items&type=' + type)
+            .then(r => r.json())
+            .then(data => {
+                if (!data.items || data.items.length === 0) {
+                    document.getElementById('cmdList').innerHTML = '<div style="padding:12px;color:var(--text-light);text-align:center;">Пусто</div>';
+                    return;
+                }
+                renderCommandItems(data.items, type, inputEl);
+            })
+            .catch(() => {
+                document.getElementById('cmdList').innerHTML = '<div style="padding:12px;color:var(--text-light);">Ошибка</div>';
+            });
+
+        // Search
+        setTimeout(() => {
+            const searchInput = document.getElementById('cmdSearchInput');
+            if (searchInput) {
+                searchInput.addEventListener('input', function() {
+                    const q = this.value.toLowerCase();
+                    document.querySelectorAll('.command-item').forEach(item => {
+                        const text = (item.dataset.title + ' ' + item.dataset.use).toLowerCase();
+                        item.style.display = text.includes(q) ? '' : 'none';
+                    });
+                });
+                searchInput.focus();
+            }
+        }, 100);
+    }
+
+    function renderCommandItems(items, type, inputEl) {
+        const list = document.getElementById('cmdList');
+        if (!list) return;
+        // Sort by likes desc
+        items.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+        let html = '';
+        items.forEach(item => {
+            html += `<div class="command-item" data-title="${escapeHtml(item.title)}" data-use="${escapeHtml(item.use || '')}" data-type="${type}" data-slug="${item.slug || ''}" style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border-light);" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">`;
+            if (type === 'music' && item.icon) {
+                html += `<img src="${item.icon}" style="width:32px;height:32px;border-radius:6px;object-fit:cover;">`;
+            } else if (type === 'sticker' && item.file) {
+                html += `<img src="${item.file}" style="width:32px;height:32px;border-radius:6px;object-fit:cover;">`;
+            } else {
+                html += `<div style="width:32px;height:32px;border-radius:6px;background:var(--primary-light);display:flex;align-items:center;justify-content:center;"><i class="fas fa-${type === 'music' ? 'music' : type === 'sticker' ? 'sticky-note' : type === 'theme' ? 'palette' : 'code'}" style="color:var(--primary);font-size:14px;"></i></div>`;
+            }
+            html += `<div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title)}</div><div style="font-size:11px;color:var(--text-light);">@${escapeHtml(item.author || '')} · ❤️ ${item.likes || 0}</div></div></div>`;
+        });
+        list.innerHTML = html;
+
+        list.querySelectorAll('.command-item').forEach(el => {
+            el.addEventListener('click', function() {
+                const useVal = this.dataset.use || this.dataset.title;
+                const typeVal = this.dataset.type;
+                const symbols = { music: '§', sticker: ';', theme: '~', coding: '&' };
+                const symbol = symbols[typeVal] || '';
+                const isContentEditable = inputEl.hasAttribute('contenteditable');
+                if (isContentEditable) {
+                    // For contenteditable, replace the trigger symbol in text content
+                    let text = inputEl.innerText || inputEl.textContent;
+                    const lastSymbolIdx = text.lastIndexOf(symbol);
+                    if (lastSymbolIdx !== -1) {
+                        inputEl.innerText = text.substring(0, lastSymbolIdx) + symbol + useVal + ' ' + text.substring(lastSymbolIdx + 1);
+                    }
+                } else {
+                    const val = inputEl.value;
+                    const cursorPos = inputEl.selectionStart;
+                    const textBefore = val.substring(0, cursorPos);
+                    const textAfter = val.substring(cursorPos);
+                    const lastSymbolIdx = textBefore.lastIndexOf(symbol);
+                    if (lastSymbolIdx !== -1) {
+                        inputEl.value = textBefore.substring(0, lastSymbolIdx) + symbol + useVal + ' ' + textAfter;
+                    }
+                }
+                hideCommandMenu();
+                inputEl.focus();
+            });
+        });
+    }
+
+    function showUserMentionMenu(query, inputEl) {
+        if (query.length < 1) { hideCommandMenu(); return; }
+        hideCommandMenu();
+
+        fetch('/api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'action=search&query=' + encodeURIComponent(query)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.users || data.users.length === 0) return;
+            const menu = document.createElement('div');
+            menu.className = 'command-menu';
+            menu.id = 'commandMenu';
+            const rect = inputEl.getBoundingClientRect();
+            menu.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom+4}px;z-index:9999;width:260px;max-height:200px;background:var(--card-bg);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.15);overflow:auto;`;
+            let html = '';
+            data.users.forEach(user => {
+                html += `<div class="command-item" data-username="${escapeHtml(user.username)}" style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''"><img src="${user.avatar}" style="width:28px;height:28px;border-radius:50%;"><span style="font-weight:600;font-size:13px;">@${escapeHtml(user.username)}</span></div>`;
+            });
+            menu.innerHTML = html;
+            document.body.appendChild(menu);
+            activeCommandMenu = menu;
+            menu.querySelectorAll('.command-item').forEach(el => {
+                el.addEventListener('click', function() {
+                    const username = this.dataset.username;
+                    const isContentEditable = inputEl.hasAttribute('contenteditable');
+                    if (isContentEditable) {
+                        let text = inputEl.innerText || inputEl.textContent;
+                        const lastAtIdx = text.lastIndexOf('@@');
+                        if (lastAtIdx !== -1) {
+                            inputEl.innerText = text.substring(0, lastAtIdx) + '@@' + username + ' ' + text.substring(lastAtIdx + 2 + (text.substring(lastAtIdx + 2).split(/\s/)[0] || '').length);
+                        }
+                    } else {
+                        const val = inputEl.value;
+                        const cursorPos = inputEl.selectionStart;
+                        const textBefore = val.substring(0, cursorPos);
+                        const textAfter = val.substring(cursorPos);
+                        const lastAtIdx = textBefore.lastIndexOf('@@');
+                        if (lastAtIdx !== -1) {
+                            inputEl.value = textBefore.substring(0, lastAtIdx) + '@@' + username + ' ' + textAfter;
+                        }
+                    }
+                    hideCommandMenu();
+                    inputEl.focus();
+                });
+            });
+        });
+    }
+
+    function hideCommandMenu() {
+        if (activeCommandMenu) { activeCommandMenu.remove(); activeCommandMenu = null; }
+        const existing = document.getElementById('commandMenu');
+        if (existing) existing.remove();
+    }
+
+    document.addEventListener('click', function(e) {
+        if (activeCommandMenu && !activeCommandMenu.contains(e.target)) {
+            hideCommandMenu();
+        }
+    });
+
+    // ============================================
+    // РЕНДЕРИНГ EMBED-КАРТОЧЕК В КОНТЕНТЕ
+    // Преобразует §юз, ;юз, ~юз, &юз, @@юзер в карточки
+    // ============================================
+    function renderEmbedCards() {
+        document.querySelectorAll('.post-text, .comment-text').forEach(el => {
+            if (el.dataset.rendered) return;
+            el.dataset.rendered = '1';
+            let html = el.innerHTML;
+
+            // @@username -> профиль-карточка
+            html = html.replace(/@@(\w+)/g, function(match, username) {
+                return `<span class="mention-card" onclick="window.location='/${username}'" style="display:inline-flex;align-items:center;gap:4px;background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:8px;cursor:pointer;font-weight:600;font-size:0.9em;"><i class="fas fa-user" style="font-size:0.8em;"></i>@${username}</span>`;
+            });
+
+            // @username -> обычное упоминание
+            html = html.replace(/@(\w+)(?!@)/g, function(match, username) {
+                return `<a href="/${username}" class="mention-link" style="color:var(--primary);font-weight:600;text-decoration:none;">@${username}</a>`;
+            });
+
+            // §юз -> музыка embed
+            html = html.replace(/§(\S+)/g, function(match, use) {
+                return `<span class="embed-card embed-music" data-type="music" data-use="${escapeHtml(use)}" style="display:inline-flex;align-items:center;gap:6px;background:var(--card-bg);border:1px solid var(--border);padding:4px 10px;border-radius:10px;cursor:pointer;font-size:0.9em;" onclick="loadEmbedCard(this,'music','${escapeHtml(use)}')"><i class="fas fa-music" style="color:var(--primary);"></i><span>${escapeHtml(use)}</span><i class="fas fa-play" style="font-size:0.7em;color:var(--text-light);"></i></span>`;
+            });
+
+            // ;юз -> стикер embed
+            html = html.replace(/;(\S+)/g, function(match, use) {
+                return `<span class="embed-card embed-sticker" data-type="sticker" data-use="${escapeHtml(use)}" style="display:inline-block;cursor:pointer;" onclick="loadEmbedCard(this,'sticker','${escapeHtml(use)}')"><span style="display:inline-flex;align-items:center;gap:4px;background:var(--card-bg);border:1px solid var(--border);padding:3px 8px;border-radius:8px;font-size:0.85em;"><i class="fas fa-sticky-note" style="color:#f59e0b;"></i>${escapeHtml(use)}</span></span>`;
+            });
+
+            // ~юз -> тема/оформление embed
+            html = html.replace(/~(\S+)/g, function(match, use) {
+                return `<span class="embed-card embed-theme" data-type="theme" data-use="${escapeHtml(use)}" style="display:inline-flex;align-items:center;gap:6px;background:var(--card-bg);border:1px solid var(--border);padding:4px 10px;border-radius:10px;cursor:pointer;font-size:0.9em;" onclick="loadEmbedCard(this,'theme','${escapeHtml(use)}')"><i class="fas fa-palette" style="color:#8b5cf6;"></i><span>${escapeHtml(use)}</span><i class="fas fa-copy" style="font-size:0.7em;color:var(--text-light);"></i></span>`;
+            });
+
+            // &юз -> кодинг embed
+            html = html.replace(/&amp;(\S+)/g, function(match, use) {
+                return `<span class="embed-card embed-coding" data-type="coding" data-use="${escapeHtml(use)}" style="display:inline-flex;align-items:center;gap:6px;background:var(--card-bg);border:1px solid var(--border);padding:4px 10px;border-radius:10px;cursor:pointer;font-size:0.9em;" onclick="loadEmbedCard(this,'coding','${escapeHtml(use)}')"><i class="fas fa-code" style="color:#06b6d4;"></i><span>${escapeHtml(use)}</span><i class="fas fa-download" style="font-size:0.7em;color:var(--text-light);"></i></span>`;
+            });
+
+            el.innerHTML = html;
+        });
+    }
+    renderEmbedCards();
+
+    // Load full embed card data on click
+    window.loadEmbedCard = function(el, type, use) {
+        fetch('/api.php?action=get_items&type=' + type + '&search=' + encodeURIComponent(use))
+            .then(r => r.json())
+            .then(data => {
+                if (!data.items || data.items.length === 0) {
+                    showNotification('Не найдено: ' + use, 'info');
+                    return;
+                }
+                const item = data.items.find(i => i.use === use) || data.items[0];
+                if (type === 'music' && item.file) {
+                    playMusic(item.file, item.title);
+                } else if (type === 'sticker') {
+                    openStickerModal(item);
+                } else if (type === 'theme' && item.css_code) {
+                    copyCssCode(item.css_code);
+                } else if (type === 'coding') {
+                    if (item.file) {
+                        window.open(item.file, '_blank');
+                    } else {
+                        showNotification('Файл не найден', 'info');
+                    }
+                }
+            })
+            .catch(e => console.error('Embed load error:', e));
     };
 });
 </script>
