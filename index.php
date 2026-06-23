@@ -25,7 +25,7 @@ define('MAX_FILE_SIZE', 5 * 1024 * 1024);
 define('MAX_AVATAR_SIZE', 1 * 1024 * 1024);
 define('MAX_POST_LENGTH', 25000);
 define('SITE_NAME', 'My Cryndel');
-define('SITE_URL', 'https://hi.cryndel.ru');
+define('SITE_URL', 'http://localhost:8080');
 define('MINECRAFT_IP', 'cryndel.ru:25919');
 
 // Создаем директории
@@ -388,6 +388,7 @@ function savePost($post) {
     
     $htmlFile = $userDir . $post['slug'] . '.html';
     $roleStyle = getRoleStyle($post['role'] ?? '');
+    $sanitizedCss = str_replace(['</style>', '<script', 'javascript:', 'expression('], '', $post['custom_css'] ?? '');
     
     $htmlContent = <<<HTML
 <!DOCTYPE html>
@@ -526,7 +527,7 @@ function savePost($post) {
             .post-header { padding: 20px; }
             .post-content { padding: 20px; }
         }
-        {$post['custom_css']}
+        {$sanitizedCss}
     </style>
 </head>
 <body>
@@ -4209,12 +4210,260 @@ if (empty($path) || $path === 'index.php') {
             font-size: 13px;
             border-radius: 8px;
         }
+
+        /* ============================================
+           УЛУЧШЕННЫЙ ДИЗАЙН — Профессиональный UI
+        ============================================ */
+
+        /* Smooth scrolling */
+        html { scroll-behavior: smooth; }
+
+        /* Better selection */
+        ::selection {
+            background: var(--primary);
+            color: #fff;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-light); }
+
+        /* Better header glass effect */
+        .header {
+            background: rgba(255,255,255,0.85) !important;
+            backdrop-filter: blur(20px) saturate(180%) !important;
+            -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+        }
+
+        /* Profile cover gradient enhancement */
+        .profile-cover {
+            height: 200px;
+            background: linear-gradient(135deg, #10b981 0%, #3b82f6 50%, #8b5cf6 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        .profile-cover::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: linear-gradient(to top, var(--card-bg), transparent);
+        }
+
+        /* Avatar ring glow */
+        .profile-avatar {
+            border: 4px solid var(--card-bg) !important;
+            box-shadow: 0 0 0 3px var(--primary), 0 4px 20px rgba(16,185,129,0.25);
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Post card hover enhancement */
+        .post-card {
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+        }
+        .post-card:hover {
+            box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+            border-color: rgba(16,185,129,0.2);
+        }
+
+        /* Better buttons with gradient */
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            box-shadow: 0 2px 8px rgba(16,185,129,0.3);
+        }
+        .btn-primary:hover {
+            box-shadow: 0 4px 16px rgba(16,185,129,0.4);
+        }
+
+        /* FAB button glow */
+        .fab-button {
+            background: linear-gradient(135deg, var(--primary), #059669);
+            box-shadow: 0 4px 20px rgba(16,185,129,0.4);
+        }
+        .fab-button:hover {
+            box-shadow: 0 6px 30px rgba(16,185,129,0.5);
+        }
+
+        /* Content card polish */
+        .content-card {
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .content-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            border-color: rgba(16,185,129,0.15);
+        }
+
+        /* Widget card subtle gradient bg */
+        .widget-card {
+            background: linear-gradient(135deg, var(--card-bg), var(--border-light));
+        }
+        .widget-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+        }
+
+        /* Input focus glow */
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: var(--primary) !important;
+            box-shadow: 0 0 0 3px rgba(16,185,129,0.15) !important;
+        }
+
+        /* Role badge shine */
+        .role-badge {
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        /* Tag hover effect */
+        .tag {
+            transition: all 0.2s ease;
+        }
+        .tag:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        /* Like button pulse on active */
+        .like-btn.active i {
+            text-shadow: 0 0 8px rgba(239,68,68,0.4);
+        }
+
+        /* Modal overlay improved */
+        .modal {
+            backdrop-filter: blur(8px);
+        }
+        .modal-content {
+            box-shadow: 0 25px 60px rgba(0,0,0,0.15);
+        }
+
+        /* Notification bell animation */
+        .notification-bell:has(.notification-badge:not(.hidden)) {
+            animation: bellShake 0.5s ease-in-out;
+        }
+        @keyframes bellShake {
+            0%, 100% { transform: rotate(0); }
+            25% { transform: rotate(10deg); }
+            75% { transform: rotate(-10deg); }
+        }
+
+        /* Loading skeleton */
+        .skeleton {
+            background: linear-gradient(90deg, var(--border-light) 25%, var(--border) 50%, var(--border-light) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 8px;
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-light);
+        }
+        .empty-state i {
+            font-size: 48px;
+            color: var(--border);
+            margin-bottom: 16px;
+        }
+        .empty-state h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 8px;
+        }
+        .empty-state p {
+            font-size: 14px;
+            max-width: 300px;
+            margin: 0 auto;
+        }
+
+        /* Badge indicators */
+        .badge-new {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            width: 10px;
+            height: 10px;
+            background: var(--primary);
+            border-radius: 50%;
+            border: 2px solid var(--card-bg);
+        }
+
+        /* Improved mobile bottom spacing for FAB */
+        @media (max-width: 768px) {
+            .main { padding-bottom: 100px; }
+            body { -webkit-tap-highlight-color: transparent; }
+            .header { border-radius: 0; }
+            .post-header { padding: 12px; }
+            .post-content { padding: 12px; }
+            .post-footer { padding: 10px 12px; }
+        }
+
+        /* Gradient text utility */
+        .gradient-text {
+            background: linear-gradient(135deg, var(--primary), #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Page transition */
+        .main {
+            animation: pageEnter 0.3s ease;
+        }
+        @keyframes pageEnter {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Sticker card improvements */
+        .sticker-card {
+            border: 1px solid var(--border);
+            background: linear-gradient(145deg, #fff, #f9fafb);
+        }
+        .sticker-card:hover {
+            transform: scale(1.08);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.12);
+            border-color: var(--primary);
+        }
+
+        /* Notification item transition */
+        .notification-item {
+            transition: all 0.2s ease;
+        }
+        .notification-item-page {
+            transition: all 0.2s ease;
+        }
+        .notification-item-page:hover {
+            transform: translateX(4px);
+        }
+
+        /* Smooth image load */
+        img { transition: opacity 0.3s ease; }
+        img[src=""] { opacity: 0; }
+
+        /* Print styles */
+        @media print {
+            .header, .fab-button, .mobile-menu, .notification-bell { display: none !important; }
+            .main { margin-top: 0; }
+        }
     </style>
     
     <?php if ($view === 'profile' && $profileUser): ?>
         <?php $settings = getUserProfileSettings($profileUser['id']); ?>
         <?php if (!empty($settings['custom_css'])): ?>
-            <style><?php echo $settings['custom_css']; ?></style>
+            <style><?php echo str_replace(['</style>', '<script', 'javascript:', 'expression('], '', $settings['custom_css']); ?></style>
         <?php endif; ?>
     <?php endif; ?>
 </head>
@@ -4235,19 +4484,19 @@ if (empty($path) || $path === 'index.php') {
                         <i class="fas fa-home"></i>
                         <span>Лента</span>
                     </a>
-                    <a href="/?action=music" class="nav-link <?php echo $view === 'music' ? 'active' : ''; ?>">
+                    <a href="/music.php" class="nav-link <?php echo $view === 'music' ? 'active' : ''; ?>">
                         <i class="fas fa-music"></i>
                         <span>Музыка</span>
                     </a>
-                    <a href="/?action=stickers" class="nav-link <?php echo $view === 'stickers' ? 'active' : ''; ?>">
+                    <a href="/stickers.php" class="nav-link <?php echo $view === 'stickers' ? 'active' : ''; ?>">
                         <i class="fas fa-sticky-note"></i>
                         <span>Стикеры</span>
                     </a>
-                    <a href="/?action=coding" class="nav-link <?php echo $view === 'coding' ? 'active' : ''; ?>">
+                    <a href="/coding.php" class="nav-link <?php echo $view === 'coding' ? 'active' : ''; ?>">
                         <i class="fas fa-code"></i>
                         <span>Кодинг</span>
                     </a>
-                    <a href="/?action=themes" class="nav-link <?php echo $view === 'themes' ? 'active' : ''; ?>">
+                    <a href="/themes.php" class="nav-link <?php echo $view === 'themes' ? 'active' : ''; ?>">
                         <i class="fas fa-palette"></i>
                         <span>Оформление</span>
                     </a>
@@ -4312,19 +4561,19 @@ if (empty($path) || $path === 'index.php') {
                 <i class="fas fa-home"></i>
                 Лента
             </a>
-            <a href="/?action=music" class="mobile-nav-link <?php echo $view === 'music' ? 'active' : ''; ?>">
+            <a href="/music.php" class="mobile-nav-link <?php echo $view === 'music' ? 'active' : ''; ?>">
                 <i class="fas fa-music"></i>
                 Музыка
             </a>
-            <a href="/?action=stickers" class="mobile-nav-link <?php echo $view === 'stickers' ? 'active' : ''; ?>">
+            <a href="/stickers.php" class="mobile-nav-link <?php echo $view === 'stickers' ? 'active' : ''; ?>">
                 <i class="fas fa-sticky-note"></i>
                 Стикеры
             </a>
-            <a href="/?action=coding" class="mobile-nav-link <?php echo $view === 'coding' ? 'active' : ''; ?>">
+            <a href="/coding.php" class="mobile-nav-link <?php echo $view === 'coding' ? 'active' : ''; ?>">
                 <i class="fas fa-code"></i>
                 Кодинг
             </a>
-            <a href="/?action=themes" class="mobile-nav-link <?php echo $view === 'themes' ? 'active' : ''; ?>">
+            <a href="/themes.php" class="mobile-nav-link <?php echo $view === 'themes' ? 'active' : ''; ?>">
                 <i class="fas fa-palette"></i>
                 Оформление
             </a>
@@ -7393,7 +7642,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // ============================================
     // ЛАЙКИ ДЛЯ КАРТОЧЕК (music/sticker/coding/theme)
     // ============================================
-    window.likeItem = function(slug, type, btn) {
+    window.likeItem = function(type, itemId, btn) {
         <?php if (!getCurrentUser()): ?>
             window.location.href = '/?action=login';
             return;
@@ -7402,14 +7651,14 @@ document.addEventListener('DOMContentLoaded', function() {
         fetch('/api.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'action=like_item&slug=' + encodeURIComponent(slug) + '&type=' + encodeURIComponent(type)
+            body: 'action=like_item&item_id=' + encodeURIComponent(itemId) + '&item_type=' + encodeURIComponent(type)
         })
         .then(r => r.json())
         .then(data => {
-            if (data.success && btn) {
+            if (btn) {
                 const icon = btn.querySelector('i');
                 const count = btn.querySelector('.like-count');
-                if (data.hasLiked) {
+                if (data.liked) {
                     if (icon) { icon.classList.remove('far'); icon.classList.add('fas'); }
                     btn.classList.add('active');
                 } else {
@@ -7422,19 +7671,53 @@ document.addEventListener('DOMContentLoaded', function() {
         .catch(e => console.error('Like error:', e));
     };
 
+    // API call helper
+    window.apiCall = function(url, data) {
+        const body = new URLSearchParams(data).toString();
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body
+        }).then(r => r.json());
+    };
+
+    // Toast notification
+    window.showToast = function(msg, type) {
+        const toast = document.createElement('div');
+        toast.className = 'toast ' + (type || 'success');
+        toast.innerHTML = '<i class="fas fa-' + (type === 'error' ? 'exclamation-circle' : 'check-circle') + '"></i> ' + msg;
+        toast.style.cssText = 'position:fixed;bottom:20px;right:20px;padding:12px 20px;background:#10b981;color:#fff;border-radius:12px;z-index:99999;font-size:14px;font-weight:500;box-shadow:0 4px 12px rgba(0,0,0,0.15);animation:fadeInUp 0.3s ease;display:flex;align-items:center;gap:8px;';
+        if (type === 'error') toast.style.background = '#ef4444';
+        document.body.appendChild(toast);
+        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+    };
+
     // ============================================
     // СПЕЦИАЛЬНЫЕ СИМВОЛЫ: §, ;, ~, &, @@
     // Менюшки для контента в постах/комментариях
     // ============================================
     function initSpecialCommands() {
-        const textInputs = document.querySelectorAll('textarea[name="content"], textarea[name="comment"]');
+        // Support both textarea and contenteditable elements
+        const textInputs = document.querySelectorAll('textarea[name="content"], textarea[name="comment"], [contenteditable="true"]');
         textInputs.forEach(input => {
+            const isContentEditable = input.hasAttribute('contenteditable');
             input.addEventListener('input', function(e) {
-                const val = this.value;
-                const cursorPos = this.selectionStart;
-                const textBefore = val.substring(0, cursorPos);
+                let textBefore = '';
+                if (isContentEditable) {
+                    const sel = window.getSelection();
+                    if (sel.rangeCount) {
+                        const range = sel.getRangeAt(0);
+                        const preRange = range.cloneRange();
+                        preRange.selectNodeContents(this);
+                        preRange.setEnd(range.startContainer, range.startOffset);
+                        textBefore = preRange.toString();
+                    }
+                } else {
+                    const val = this.value;
+                    const cursorPos = this.selectionStart;
+                    textBefore = val.substring(0, cursorPos);
+                }
 
-                // Check for special trigger characters
                 const lastWord = textBefore.split(/\s/).pop();
 
                 if (lastWord === '§') {
@@ -7528,14 +7811,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 const typeVal = this.dataset.type;
                 const symbols = { music: '§', sticker: ';', theme: '~', coding: '&' };
                 const symbol = symbols[typeVal] || '';
-                // Replace the trigger symbol with the embed
-                const val = inputEl.value;
-                const cursorPos = inputEl.selectionStart;
-                const textBefore = val.substring(0, cursorPos);
-                const textAfter = val.substring(cursorPos);
-                const lastSymbolIdx = textBefore.lastIndexOf(symbol);
-                if (lastSymbolIdx !== -1) {
-                    inputEl.value = textBefore.substring(0, lastSymbolIdx) + symbol + useVal + ' ' + textAfter;
+                const isContentEditable = inputEl.hasAttribute('contenteditable');
+                if (isContentEditable) {
+                    // For contenteditable, replace the trigger symbol in text content
+                    let text = inputEl.innerText || inputEl.textContent;
+                    const lastSymbolIdx = text.lastIndexOf(symbol);
+                    if (lastSymbolIdx !== -1) {
+                        inputEl.innerText = text.substring(0, lastSymbolIdx) + symbol + useVal + ' ' + text.substring(lastSymbolIdx + 1);
+                    }
+                } else {
+                    const val = inputEl.value;
+                    const cursorPos = inputEl.selectionStart;
+                    const textBefore = val.substring(0, cursorPos);
+                    const textAfter = val.substring(cursorPos);
+                    const lastSymbolIdx = textBefore.lastIndexOf(symbol);
+                    if (lastSymbolIdx !== -1) {
+                        inputEl.value = textBefore.substring(0, lastSymbolIdx) + symbol + useVal + ' ' + textAfter;
+                    }
                 }
                 hideCommandMenu();
                 inputEl.focus();
@@ -7547,10 +7839,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (query.length < 1) { hideCommandMenu(); return; }
         hideCommandMenu();
 
-        fetch('/', {
+        fetch('/api.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'action=search&query=' + encodeURIComponent(query) + '&type=users'
+            body: 'action=search&query=' + encodeURIComponent(query)
         })
         .then(r => r.json())
         .then(data => {
@@ -7570,13 +7862,22 @@ document.addEventListener('DOMContentLoaded', function() {
             menu.querySelectorAll('.command-item').forEach(el => {
                 el.addEventListener('click', function() {
                     const username = this.dataset.username;
-                    const val = inputEl.value;
-                    const cursorPos = inputEl.selectionStart;
-                    const textBefore = val.substring(0, cursorPos);
-                    const textAfter = val.substring(cursorPos);
-                    const lastAtIdx = textBefore.lastIndexOf('@@');
-                    if (lastAtIdx !== -1) {
-                        inputEl.value = textBefore.substring(0, lastAtIdx) + '@@' + username + ' ' + textAfter;
+                    const isContentEditable = inputEl.hasAttribute('contenteditable');
+                    if (isContentEditable) {
+                        let text = inputEl.innerText || inputEl.textContent;
+                        const lastAtIdx = text.lastIndexOf('@@');
+                        if (lastAtIdx !== -1) {
+                            inputEl.innerText = text.substring(0, lastAtIdx) + '@@' + username + ' ' + text.substring(lastAtIdx + 2 + (text.substring(lastAtIdx + 2).split(/\s/)[0] || '').length);
+                        }
+                    } else {
+                        const val = inputEl.value;
+                        const cursorPos = inputEl.selectionStart;
+                        const textBefore = val.substring(0, cursorPos);
+                        const textAfter = val.substring(cursorPos);
+                        const lastAtIdx = textBefore.lastIndexOf('@@');
+                        if (lastAtIdx !== -1) {
+                            inputEl.value = textBefore.substring(0, lastAtIdx) + '@@' + username + ' ' + textAfter;
+                        }
                     }
                     hideCommandMenu();
                     inputEl.focus();
